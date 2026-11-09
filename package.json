@@ -1,6 +1,6 @@
 {
   "name": "ascii-fold",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Spinning protein structures drawn as ASCII text dissolving into a cartoon ribbon. Loads models straight from AlphaFold DB.",
   "type": "module",
   "main": "dist/ascii-fold.js",
