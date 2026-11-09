@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII Fold — proteins as text and ribbon</title>
+<meta name="description" content="Spinning protein structures from AlphaFold DB, drawn as ASCII text dissolving into a cartoon ribbon.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<header>
+  <div class="id">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i></div>
+    <h1 id="title">KRAS G12D</h1>
+    <span class="sub" id="sub">PDB 6GJ8 · chain A</span>
+  </div>
+  <form class="loader" id="form" autocomplete="off">
+    <input id="acc" placeholder="UniProt ID" spellcheck="false" aria-label="UniProt accession">
+    <button class="btn" type="submit">Load</button>
+    <button class="btn alt" type="button" id="rand">Random</button>
+    <button class="btn ghost" type="button" id="openBtn">Open file</button>
+    <input type="file" id="file" accept=".pdb,.cif,.mmcif,.ent,.gz" hidden>
+  </form>
+</header>
+<div id="status" role="status"></div>
+
+<main id="stage"></main>
+
+<div class="hint"><span>Drag to rotate · Shift-drag or right-drag to pan · Scroll or pinch to zoom · Double-click to reset</span><span id="credit"></span></div>
+
+<footer>
+  <div class="ctl"><label>Zoom</label>
+    <div class="seg"><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zfit">Fit</button><button type="button" id="zin" aria-label="Zoom in">+</button></div>
+    <span id="zval" class="zval">1.0×</span>
+  </div>
+  <div class="ctl"><label>Detail</label>
+    <div class="seg" id="detail"><button data-v="coarse">Coarse</button><button data-v="medium" class="on">Medium</button><button data-v="fine">Fine</button><button data-v="ultra">Ultra</button></div>
+  </div>
+  <div class="ctl"><label for="speed">Spin</label><input id="speed" type="range" min="0" max="100" value="35"></div>
+  <div class="ctl"><label for="f0">Blend from</label><input id="f0" type="range" min="0" max="100" value="25"></div>
+  <div class="ctl"><label for="f1">to</label><input id="f1" type="range" min="0" max="100" value="80"></div>
+  <div class="ctl"><label>Layout</label>
+    <div class="seg" id="layout"><button data-v="lr" class="on">Text→Ribbon</button><button data-v="rl">Ribbon→Text</button><button data-v="ascii">Text</button><button data-v="ribbon">Ribbon</button></div>
+  </div>
+  <div class="ctl"><label>Seam</label>
+    <div class="seg" id="seam"><button data-v="dither" class="on">Dither</button><button data-v="soft">Soft</button></div>
+  </div>
+  <div class="ctl"><label>Colour</label>
+    <div class="seg" id="colour"><button data-v="ss" class="on">SS</button><button data-v="plddt" id="plddtBtn" disabled>pLDDT</button><button data-v="mono">Ink</button></div>
+  </div>
+  <div class="ctl"><label>Ground</label>
+    <div class="seg" id="theme"><button data-v="paper" class="on">Paper</button><button data-v="night">Night</button></div>
+  </div>
+  <div class="ctl"><label>Glyphs</label>
+    <div class="seg" id="glyphs"><button data-v="classic" class="on">Classic</button><button data-v="blocks">Blocks</button><button data-v="geo">Geo</button></div>
+  </div>
+  <div class="legend" id="legend"></div>
+  <button class="btn ghost" type="button" id="shapeBtn" aria-expanded="true" aria-controls="shape">Shape ▾</button>
+  <button class="btn" type="button" id="png">Snapshot</button>
+  <button class="btn alt" type="button" id="copy">Copy text</button>
+</footer>
+
+<section id="shape" class="shape" aria-label="Shape controls">
+  <div class="grp"><span class="gl"><i class="sw h"></i>Helix</span>
+    <div class="seg" id="hStyle"><button data-v="ribbon" class="on">Ribbon</button><button data-v="cylinder">Cylinder</button></div>
+    <div class="ctl"><label for="hW">Width</label><input id="hW" type="range" min="50" max="250" value="135"></div>
+    <div class="ctl" id="hTwrap"><label for="hT">Thickness</label><input id="hT" type="range" min="4" max="120" value="28"></div>
+  </div>
+  <div class="grp"><span class="gl"><i class="sw e"></i>Strand</span>
+    <div class="ctl"><label for="flat">Flatten</label><input id="flat" type="range" min="0" max="100" value="60"></div>
+    <div class="ctl"><label for="sW">Width</label><input id="sW" type="range" min="50" max="220" value="115"></div>
+    <div class="ctl"><label for="sT">Thickness</label><input id="sT" type="range" min="2" max="80" value="14"></div>
+    <div class="seg" id="arrows"><button data-v="on" class="on">Arrows</button><button data-v="off">None</button></div>
+    <div class="ctl" id="headWrap"><label for="head">Head</label><input id="head" type="range" min="120" max="360" value="230"></div>
+  </div>
+  <div class="grp"><span class="gl"><i class="sw c"></i>Coil</span>
+    <div class="ctl"><label for="coilR">Width</label><input id="coilR" type="range" min="15" max="120" value="48"></div>
+    <button class="btn ghost" type="button" id="shapeReset">Reset shape</button>
+  </div>
+</section>
+
+<div id="snap" hidden>
+  <div><img alt="Snapshot of the current frame"><p>Right-click or long-press to save · click outside to close</p></div>
+</div>
+
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>

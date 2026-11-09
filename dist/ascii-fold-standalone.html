@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII Fold — proteins as text and ribbon</title>
+<meta name="description" content="Spinning protein structures from AlphaFold DB, drawn as ASCII text dissolving into a cartoon ribbon.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+:root {
+  --paper: #F2ECDF; --ink: #1B1A18; --mute: #8A8478;
+  --red: #D33A2C; --blue: #1F63B0; --yellow: #EFB52E;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); }
+body {
+  font-family: Futura, "Century Gothic", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  height: 100vh; height: 100dvh; overflow: hidden; display: flex; flex-direction: column;
+  transition: background .3s, color .3s;
+}
+body.night { --paper: #121212; --ink: #F2ECDF; --mute: #77736b; }
+a { color: var(--blue); }
+
+header { display: flex; align-items: center; gap: 14px 22px; padding: 18px 24px 6px; flex-wrap: wrap; }
+.id { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; min-width: 0; }
+.mark { display: flex; gap: 4px; align-items: center; }
+.mark i { display: block; width: 14px; height: 14px; }
+.mark i:nth-child(1) { background: var(--red); border-radius: 50%; }
+.mark i:nth-child(2) { background: var(--blue); }
+.mark i:nth-child(3) { width: 0; height: 0; border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--yellow); }
+h1 { font-size: 15px; letter-spacing: .18em; text-transform: uppercase; margin: 0; font-weight: 700; }
+.sub { font-size: 12px; color: var(--mute); letter-spacing: .04em; }
+.loader { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.loader input {
+  font: 600 13px "JetBrains Mono", ui-monospace, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase;
+  width: 128px; padding: 6px 8px; border: 2px solid var(--ink); background: transparent; color: var(--ink); outline: none;
+}
+.loader input:focus { border-color: var(--red); }
+#status { font-size: 12px; color: var(--mute); padding: 0 24px; min-height: 16px; letter-spacing: .03em; }
+#status.err { color: var(--red); }
+
+main#stage { flex: 1; min-height: 160px; position: relative; margin: 4px 0; }
+main#stage.drop::after {
+  content: "Drop a .pdb or .cif file"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  border: 3px dashed var(--red); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; color: var(--red);
+  background: color-mix(in srgb, var(--paper) 80%, transparent); z-index: 2;
+}
+
+.hint { display: flex; justify-content: space-between; gap: 16px; font-size: 11px; color: var(--mute); padding: 0 24px 4px; letter-spacing: .03em; }
+footer { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; padding: 12px 24px 14px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.ctl { display: flex; align-items: center; gap: 8px; }
+.ctl label { color: var(--mute); }
+.ctl.off { opacity: .35; pointer-events: none; }
+input[type=range] { accent-color: var(--red); width: 96px; }
+.seg { display: inline-flex; border: 2px solid var(--ink); }
+.seg button { font: inherit; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: transparent; color: var(--ink); border: 0; padding: 5px 9px; cursor: pointer; }
+.seg button + button { border-left: 2px solid var(--ink); }
+.seg button.on { background: var(--ink); color: var(--paper); }
+.seg button:disabled { opacity: .35; cursor: not-allowed; }
+.btn { font: inherit; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; background: var(--red); color: #fff; border: 0; padding: 7px 11px; cursor: pointer; }
+.btn.alt { background: var(--blue); }
+.btn.ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); padding: 5px 9px; }
+.zval { font: 600 12px "JetBrains Mono", ui-monospace, monospace; min-width: 42px; }
+.legend { display: flex; gap: 12px; color: var(--mute); font-size: 11px; }
+.legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 5px; vertical-align: -1px; background: var(--sw); }
+
+.shape { display: flex; flex-wrap: wrap; gap: 12px 30px; align-items: center; padding: 0 24px 18px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+.shape.closed { display: none; }
+.shape .grp { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; }
+.shape .gl { font-weight: 700; letter-spacing: .14em; display: inline-flex; align-items: center; gap: 7px; }
+.shape .sw { display: inline-block; width: 11px; height: 11px; }
+.shape .sw.h { background: var(--red); border-radius: 50%; }
+.shape .sw.e { width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 11px solid var(--blue); }
+.shape .sw.c { background: var(--yellow); height: 4px; }
+
+#snap { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 10; }
+#snap[hidden] { display: none; }
+#snap > div { text-align: center; }
+#snap img { max-width: 90vw; max-height: 80vh; box-shadow: 0 10px 40px rgba(0,0,0,.4); }
+#snap p { color: #fff; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; }
+
+@media (max-width: 720px) {
+  header { padding: 12px 14px 4px; gap: 8px; }
+  .loader { margin-left: 0; width: 100%; }
+  .loader input { flex: 1; min-width: 0; }
+  #status { padding: 0 14px; font-size: 11px; }
+  .hint > span:first-child { display: none; }
+  .hint { padding: 0 14px 4px; }
+  footer { flex-wrap: nowrap; overflow-x: auto; padding: 10px 14px 12px; gap: 18px; scrollbar-width: thin; }
+  footer > * { flex: 0 0 auto; }
+  .shape { flex-wrap: nowrap; overflow-x: auto; padding: 0 14px 12px; }
+  .shape .grp { flex-wrap: nowrap; flex: 0 0 auto; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="id">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i></div>
+    <h1 id="title">KRAS G12D</h1>
+    <span class="sub" id="sub">PDB 6GJ8 · chain A</span>
+  </div>
+  <form class="loader" id="form" autocomplete="off">
+    <input id="acc" placeholder="UniProt ID" spellcheck="false" aria-label="UniProt accession">
+    <button class="btn" type="submit">Load</button>
+    <button class="btn alt" type="button" id="rand">Random</button>
+    <button class="btn ghost" type="button" id="openBtn">Open file</button>
+    <input type="file" id="file" accept=".pdb,.cif,.mmcif,.ent,.gz" hidden>
+  </form>
+</header>
+<div id="status" role="status"></div>
+
+<main id="stage"></main>
+
+<div class="hint"><span>Drag to rotate · Shift-drag or right-drag to pan · Scroll or pinch to zoom · Double-click to reset</span><span id="credit"></span></div>
+
+<footer>
+  <div class="ctl"><label>Zoom</label>
+    <div class="seg"><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zfit">Fit</button><button type="button" id="zin" aria-label="Zoom in">+</button></div>
+    <span id="zval" class="zval">1.0×</span>
+  </div>
+  <div class="ctl"><label>Detail</label>
+    <div class="seg" id="detail"><button data-v="coarse">Coarse</button><button data-v="medium" class="on">Medium</button><button data-v="fine">Fine</button><button data-v="ultra">Ultra</button></div>
+  </div>
+  <div class="ctl"><label for="speed">Spin</label><input id="speed" type="range" min="0" max="100" value="35"></div>
+  <div class="ctl"><label for="f0">Blend from</label><input id="f0" type="range" min="0" max="100" value="25"></div>
+  <div class="ctl"><label for="f1">to</label><input id="f1" type="range" min="0" max="100" value="80"></div>
+  <div class="ctl"><label>Layout</label>
+    <div class="seg" id="layout"><button data-v="lr" class="on">Text→Ribbon</button><button data-v="rl">Ribbon→Text</button><button data-v="ascii">Text</button><button data-v="ribbon">Ribbon</button></div>
+  </div>
+  <div class="ctl"><label>Seam</label>
+    <div class="seg" id="seam"><button data-v="dither" class="on">Dither</button><button data-v="soft">Soft</button></div>
+  </div>
+  <div class="ctl"><label>Colour</label>
+    <div class="seg" id="colour"><button data-v="ss" class="on">SS</button><button data-v="plddt" id="plddtBtn" disabled>pLDDT</button><button data-v="mono">Ink</button></div>
+  </div>
+  <div class="ctl"><label>Ground</label>
+    <div class="seg" id="theme"><button data-v="paper" class="on">Paper</button><button data-v="night">Night</button></div>
+  </div>
+  <div class="ctl"><label>Glyphs</label>
+    <div class="seg" id="glyphs"><button data-v="classic" class="on">Classic</button><button data-v="blocks">Blocks</button><button data-v="geo">Geo</button></div>
+  </div>
+  <div class="legend" id="legend"></div>
+  <button class="btn ghost" type="button" id="shapeBtn" aria-expanded="true" aria-controls="shape">Shape ▾</button>
+  <button class="btn" type="button" id="png">Snapshot</button>
+  <button class="btn alt" type="button" id="copy">Copy text</button>
+</footer>
+
+<section id="shape" class="shape" aria-label="Shape controls">
+  <div class="grp"><span class="gl"><i class="sw h"></i>Helix</span>
+    <div class="seg" id="hStyle"><button data-v="ribbon" class="on">Ribbon</button><button data-v="cylinder">Cylinder</button></div>
+    <div class="ctl"><label for="hW">Width</label><input id="hW" type="range" min="50" max="250" value="135"></div>
+    <div class="ctl" id="hTwrap"><label for="hT">Thickness</label><input id="hT" type="range" min="4" max="120" value="28"></div>
+  </div>
+  <div class="grp"><span class="gl"><i class="sw e"></i>Strand</span>
+    <div class="ctl"><label for="flat">Flatten</label><input id="flat" type="range" min="0" max="100" value="60"></div>
+    <div class="ctl"><label for="sW">Width</label><input id="sW" type="range" min="50" max="220" value="115"></div>
+    <div class="ctl"><label for="sT">Thickness</label><input id="sT" type="range" min="2" max="80" value="14"></div>
+    <div class="seg" id="arrows"><button data-v="on" class="on">Arrows</button><button data-v="off">None</button></div>
+    <div class="ctl" id="headWrap"><label for="head">Head</label><input id="head" type="range" min="120" max="360" value="230"></div>
+  </div>
+  <div class="grp"><span class="gl"><i class="sw c"></i>Coil</span>
+    <div class="ctl"><label for="coilR">Width</label><input id="coilR" type="range" min="15" max="120" value="48"></div>
+    <button class="btn ghost" type="button" id="shapeReset">Reset shape</button>
+  </div>
+</section>
+
+<div id="snap" hidden>
+  <div><img alt="Snapshot of the current frame"><p>Right-click or long-press to save · click outside to close</p></div>
+</div>
+
+<script>
+(()=>{var T1=(t,n)=>[t[0]-n[0],t[1]-n[1],t[2]-n[2]],g=(t,n)=>[t[0]+n[0],t[1]+n[1],t[2]+n[2]],S=(t,n)=>[t[0]*n,t[1]*n,t[2]*n],R1=(t,n)=>t[0]*n[0]+t[1]*n[1]+t[2]*n[2],k0=(t,n)=>[t[1]*n[2]-t[2]*n[1],t[2]*n[0]-t[0]*n[2],t[0]*n[1]-t[1]*n[0]],Q=t=>{let n=Math.hypot(t[0],t[1],t[2])||1;return[t[0]/n,t[1]/n,t[2]/n]},A0=(t,n)=>Math.hypot(t[0]-n[0],t[1]-n[1],t[2]-n[2]);function F0(t){let n=t.length,l=new Array(n).fill("C"),o=(A,s)=>A0(t[A],t[s]),c=A=>A+4<n&&Math.abs(o(A,A+2)-5.45)<.6&&Math.abs(o(A,A+3)-5.2)<.7&&Math.abs(o(A,A+4)-6.2)<.8;for(let A=0;A+5<n;A++)if(c(A)&&c(A+1))for(let s=A;s<=A+5;s++)l[s]="H";let L=new Array(n).fill(!1);for(let A=0;A+2<n;A++)o(A,A+2)>6.1&&(A+3>=n||o(A,A+3)>8.4)&&(L[A]=L[A+1]=L[A+2]=!0);let d=5.5,T=new Map,C=A=>`${Math.floor(A[0]/d)},${Math.floor(A[1]/d)},${Math.floor(A[2]/d)}`;t.forEach((A,s)=>{let u=C(A);T.has(u)||T.set(u,[]),T.get(u).push(s)});let a=(A,s)=>A>=0&&s>=0&&A<n&&s<n&&Math.abs(A-s)>2&&o(A,s)<5.5;for(let A=0;A<n;A++){if(!L[A]||l[A]==="H")continue;let s=[0,1,2].map(I=>Math.floor(t[A][I]/d)),u=!1;for(let I=-1;I<=1&&!u;I++)for(let E=-1;E<=1&&!u;E++)for(let U=-1;U<=1&&!u;U++)for(let z of T.get(`${s[0]+I},${s[1]+E},${s[2]+U}`)||[])if(!(Math.abs(A-z)<3||!L[z]||l[z]==="H"||o(A,z)>5.5)&&(a(A+1,z+1)||a(A-1,z-1)||a(A+1,z-1)||a(A-1,z+1))){u=!0;break}u&&(l[A]="E")}for(let A=1;A<n-1;A++)l[A]==="C"&&l[A-1]==="E"&&l[A+1]==="E"&&L[A]&&(l[A]="E");let O=(A,s)=>{for(let u=0;u<n;){if(l[u]!==A){u++;continue}let I=u;for(;I<n&&l[I]===A;)I++;if(I-u<s)for(let E=u;E<I;E++)l[E]="C";u=I}};return O("H",4),O("E",3),l}var st=t=>t>90?0:t>70?1:t>50?2:3,G1={hStyle:"ribbon",hW:1.35,hT:.28,cylR:2.3,sW:1.15,sT:.14,flat:.6,arrows:!0,head:2.3,coilR:.48};function it(t,n,l){let o=new Array(l-n+1).fill(null);for(let a=n+2;a<=l-2;a++)o[a-n]=S(g(g(g(S(t[a-2],.5),t[a-1]),g(t[a],t[a+1])),S(t[a+2],.5)),.25);let c=o.map((a,O)=>a?O:-1).filter(a=>a>=0);if(c.length<2){let a=S(t.slice(n,l+1).reduce((A,s)=>g(A,s),[0,0,0]),1/(l-n+1)),O=Q(T1(t[l],t[n]));return t.slice(n,l+1).map(A=>g(a,S(O,R1(T1(A,a),O))))}let L=c[0],d=c[c.length-1],T=T1(o[L],o[L+1]),C=T1(o[d],o[d-1]);for(let a=L-1;a>=0;a--)o[a]=g(o[a+1],T);for(let a=d+1;a<o.length;a++)o[a]=g(o[a-1],C);for(let a=0;a<4;a++){let O=o.map((A,s)=>s===0||s===o.length-1?A:S(g(g(o[s-1],S(A,2)),o[s+1]),.25));for(let A=0;A<o.length;A++)o[A]=O[A]}return o}function p0(t,n=G1){let l=t.rows;if(l.length<5)throw new Error("Too few residues to draw");let o=l.length,c={...G1,...n},L=c.hStyle==="cylinder",d=l.map(i=>i.CA),T=d.reduce((i,h)=>g(i,h),[0,0,0]).map(i=>i/o);d=d.map(i=>T1(i,T));let C=t.ss||F0(d),a=l.map(i=>st(i.b||0)),O=Math.max(3,Math.min(10,Math.round(2600/o))),A=d.map(i=>i.slice());for(let i=0;i<3&&c.flat>0;i++)A=A.map((G,x)=>{if(C[x]!=="E"||x===0||x===o-1)return G;let e1=S(g(g(A[x-1],S(G,2)),A[x+1]),.25);return g(S(G,1-c.flat),S(e1,c.flat))});let s=new Array(o).fill(null);if(L)for(let i=0;i<o;){if(C[i]!=="H"){i++;continue}let h=i;for(;h+1<o&&C[h+1]==="H";)h++;it(A,i,h).forEach((G,x)=>s[i+x]=G),i=h+1}let u=[];for(let i=0;i<o;i++){let h;if(l[i].O)h=Q(T1(l[i].O,l[i].CA));else{let G=A[Math.max(0,i-1)],x=A[Math.min(o-1,i+1)];h=Q(T1(g(G,x),S(A[i],2)))}i>0&&R1(h,u[i-1])<0&&(h=S(h,-1)),u.push(h)}let I=Math.round(c.flat*6);for(let i=0;i<2+I;i++){let h=u.map((G,x)=>x===0||x===o-1||C[x]==="C"||i>=2&&C[x]!=="E"?G:Q(g(g(S(u[x-1],.25),S(G,.5)),S(u[x+1],.25))));for(let G=0;G<o;G++)u[G]=h[G]}let E=L?c.cylR:2.1*c.hW/1.35,U=Math.max(1,c.sW*1.35),z=i=>i==="H"?E:i==="E"?U:.95,P=[];for(let i=0;i<o-1;i++){let h=A[Math.max(0,i-1)],G=A[i],x=A[i+1],e1=A[Math.min(o-1,i+2)],m1=A0(d[i],d[i+1])>4.3,c1=L&&C[i]==="H"&&C[i+1]==="H";for(let K=0;K<O;K++){let b=K/O,O1=b*b,M1=O1*b,A1;if(c1)A1=g(S(s[i],1-b),S(s[i+1],b));else if(L&&C[i]==="H")A1=g(S(s[i],1-b),S(x,b));else if(L&&C[i+1]==="H")A1=g(S(G,1-b),S(s[i+1],b));else{let z1=N=>.5*(2*G[N]+(-h[N]+x[N])*b+(2*h[N]-5*G[N]+4*x[N]-e1[N])*O1+(-h[N]+3*G[N]-3*x[N]+e1[N])*M1);A1=[z1(0),z1(1),z1(2)]}let u1=b<.5?i:i+1;P.push({p:A1,r:z(C[i])*(1-b)+z(C[i+1])*b,ss:C[u1],pk:a[u1],side:Q(g(S(u[i],1-b),S(u[i+1],b))),res:i,t:b,gap:m1,cyl:c1})}}let V=L&&C[o-1]==="H"?s[o-1]:A[o-1];P.push({p:V,r:z(C[o-1]),ss:C[o-1],pk:a[o-1],side:u[o-1],res:o-1,t:0,gap:!1,cyl:L&&C[o-1]==="H"});for(let i=0;i<P.length;i++){let h=P[i],G=P[Math.max(0,i-1)].p,x=P[Math.min(P.length-1,i+1)].p,e1=Q(T1(x,G)),m1=Q(T1(h.side,S(e1,R1(h.side,e1))));h.side=m1,h.nrm=Q(k0(e1,m1));let c1=h.res,K=h.t,b=C[c1],O1=C[Math.min(o-1,c1+1)],M1=0,A1=0;if(h.cyl){h.kind="Hc",h.wIn=h.wOut=0;continue}b==="H"&&!L?(M1=O1==="H"?c.hW:c.hW*(1-.7*K),A1=c.hT):b==="E"&&(A1=c.sT,O1==="E"?M1=c.sW:c.arrows?M1=c.head*(1-K)+.04:M1=c.sW*(1-.35*K)),h.kind=M1>0?b:"C",h.th=A1,h.wIn=h.wOut=M1,b==="E"&&O1!=="E"&&K===0&&c.arrows&&(h.wIn=c.sW,h.wOut=c.head)}let q=P.map(i=>Math.hypot(...i.p)).sort((i,h)=>i-h),t1=q[q.length-1],r1=q[Math.floor(q.length*.95)],f1=Math.min(t1,r1*1.12)+2.2,l1=l.map(i=>i.b||0),n1=t.isAF||!1,a1=l1.reduce((i,h)=>i+h,0)/o;return{pts:P,R:f1,hasPlddt:n1,N:o,meanP:a1,ssCounts:{H:C.filter(i=>i==="H").length,E:C.filter(i=>i==="E").length},ssAuto:!t.ss}}function m0(t){let n=new Map,l=[],o=[],c=[],L=null,d=null;for(let O of t.split(/\r?\n/)){let A=O.slice(0,6);if(A==="ENDMDL")break;if(A==="TITLE "&&!d&&(d=O.slice(10).trim()),A==="HELIX "){o.push([O[19],parseInt(O.slice(21,25)),parseInt(O.slice(33,37))]);continue}if(A==="SHEET "){c.push([O[21],parseInt(O.slice(22,26)),parseInt(O.slice(33,37))]);continue}if(A!=="ATOM  ")continue;let s=O.slice(12,16).trim();if(s!=="CA"&&s!=="O")continue;let u=O[16];if(u!==" "&&u!=="A")continue;let I=O[21];if(L===null&&(L=I),I!==L)continue;let E=O.slice(22,27),U=n.get(E);U||(U={num:parseInt(O.slice(22,26))},n.set(E,U),l.push(E)),U[s]=[parseFloat(O.slice(30,38)),parseFloat(O.slice(38,46)),parseFloat(O.slice(46,54))],s==="CA"&&(U.b=parseFloat(O.slice(60,66)))}let T=l.map(O=>n.get(O)).filter(O=>O.CA),C=null,a=new Map;for(let[O,A,s]of o)if(O===L)for(let u=A;u<=s;u++)a.set(u,"H");for(let[O,A,s]of c)if(O===L)for(let u=A;u<=s;u++)a.set(u,"E");return a.size&&(C=T.map(O=>a.get(O.num)||"C")),{rows:T,chain:L,ss:C,isAF:/ALPHAFOLD/i.test(t.slice(0,5e3)),title:d}}function rt(t){let n=[],l=/'((?:[^']|'(?!\s|$))*)'(?=\s|$)|"((?:[^"]|"(?!\s|$))*)"(?=\s|$)|(\S+)/g,o;for(;o=l.exec(t);)n.push(o[1]??o[2]??o[3]);return n}function lt(t){let n=t.split(/\r?\n/),l=n.findIndex(A=>A.startsWith("_atom_site."));if(l<0)throw new Error("No _atom_site block in this mmCIF file");let o=[];for(;l<n.length&&n[l].startsWith("_atom_site.");)o.push(n[l].trim().slice(11)),l++;let c=A=>o.indexOf(A),L=(A,s)=>c(A)>=0?c(A):c(s),d={g:c("group_PDB"),atom:c("label_atom_id"),alt:c("label_alt_id"),chain:L("auth_asym_id","label_asym_id"),seq:L("auth_seq_id","label_seq_id"),ins:c("pdbx_PDB_ins_code"),x:c("Cartn_x"),y:c("Cartn_y"),z:c("Cartn_z"),b:c("B_iso_or_equiv"),model:c("pdbx_PDB_model_num")},T=new Map,C=[],a=null,O=null;for(;l<n.length;l++){let A=n[l];if(!A)continue;if(A[0]==="#"||A[0]==="_"||A.startsWith("loop_"))break;let s=rt(A);if(s.length<o.length||d.g>=0&&s[d.g]!=="ATOM")continue;if(d.model>=0){if(O===null)O=s[d.model];else if(s[d.model]!==O)break}let u=s[d.atom];if(u!=="CA"&&u!=="O"||d.alt>=0&&!".?A".includes(s[d.alt]))continue;let I=s[d.chain];if(a===null&&(a=I),I!==a)continue;let E=s[d.seq]+(d.ins>=0?s[d.ins]:""),U=T.get(E);U||(U={num:parseInt(s[d.seq])},T.set(E,U),C.push(E)),U[u]=[parseFloat(s[d.x]),parseFloat(s[d.y]),parseFloat(s[d.z])],u==="CA"&&(U.b=d.b>=0?parseFloat(s[d.b]):0)}return{rows:C.map(A=>T.get(A)).filter(A=>A.CA),chain:a,ss:null,isAF:/_ma_qa_metric|alphafold/i.test(t.slice(0,2e4)),title:null}}function _1(t){return/^data_/m.test(t.slice(0,2e3))||/_atom_site\./.test(t.slice(0,2e5))?lt(t):m0(t)}async function I0(t){let n;if(/\.gz$/i.test(t.name||"")){if(typeof DecompressionStream>"u")throw new Error("this browser can't unzip .gz files; unzip it first");n=await new Response(t.stream().pipeThrough(new DecompressionStream("gzip"))).text()}else n=await t.text();let l=_1(n),o=(t.name||"").match(/AF-([A-Z0-9]+)-F(\d+)/i);return o&&(l.isAF=!0),{parsed:l,afId:o?{acc:o[1].toUpperCase(),frag:o[2]}:null}}var U0="https://alphafold.ebi.ac.uk",at=/^([OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2})$/;function ct(t){let n=String(t||"").trim().toUpperCase().replace(/^AF-/,"").replace(/-F\d+(-MODEL_V\d+)?(\.(PDB|CIF))?$/,"");return at.test(n)?n:null}var H1=class extends Error{constructor(n,l,o){super(n),this.kind=l,this.acc=o}};async function v0(t,{signal:n}={}){let l=ct(t);if(!l)throw new H1(`\u201C${t}\u201D doesn't look like a UniProt accession (e.g. P01116).`,"invalid",t);let o=`${U0}/entry/${l}`,c,L;try{let T=await fetch(`${U0}/api/prediction/${l}`,{signal:n});if(T.status===404||T.status===400)throw new H1(`No AlphaFold DB entry for ${l}.`,"missing",l);if(!T.ok)throw new Error(`API returned ${T.status}`);let C=await T.json();if(c=Array.isArray(C)?C[0]:C,!c||!(c.pdbUrl||c.cifUrl))throw new H1(`No model file listed for ${l}.`,"missing",l);let a=await fetch(c.pdbUrl||c.cifUrl,{signal:n});if(!a.ok)throw new Error(`model file returned ${a.status}`);L=await a.text()}catch(T){throw T instanceof H1||T.name==="AbortError"?T:new H1(`Couldn't reach AlphaFold DB (${T.message||T}).`,"network",l)}let d=_1(L);return d.isAF=!0,{parsed:d,meta:c,acc:l,entryUrl:o}}function D0(t,n){let l=t.uniprotStart&&t.uniprotEnd?` (${t.uniprotStart}\u2013${t.uniprotEnd})`:"";return{title:t.gene||t.uniprotId||n,sub:[t.uniprotDescription,t.organismScientificName,`${t.entryId||"AF-"+n}${l} \xB7 v${t.latestVersion||"?"}`].filter(Boolean).join(" \xB7 ")}}var B0=`HELIX    1 AA1 GLY A   15  ASN A   26  1                                  12    
+HELIX    2 AA2 GLN A   61  ALA A   66  5                                   6    
+HELIX    3 AA3 MET A   67  GLY A   75  1                                   9    
+HELIX    4 AA4 ASN A   86  ASP A  105  1                                  20    
+HELIX    5 AA5 ASP A  126  GLY A  138  1                                  13    
+HELIX    6 AA6 GLY A  151  LYS A  167  1                                  17    
+SHEET    1 AA1 6 ASP A  38  ILE A  46  0                                        
+SHEET    2 AA1 6 GLU A  49  ASP A  57 -1  O  CYS A  51   N  VAL A  44           
+SHEET    3 AA1 6 MET A   1  VAL A   9  1  N  LEU A   6   O  LEU A  56           
+SHEET    4 AA1 6 GLY A  77  ALA A  83  1  O  LEU A  79   N  VAL A   7           
+SHEET    5 AA1 6 MET A 111  ASN A 116  1  O  ASN A 116   N  PHE A  82           
+SHEET    6 AA1 6 PHE A 141  GLU A 143  1  O  ILE A 142   N  LEU A 113           
+ATOM      2  CA  GLY A   0      36.119   9.817 -19.019  1.00 24.56
+ATOM      4  O   GLY A   0      35.055  11.675 -17.949  1.00 25.83
+ATOM      6  CA  MET A   1      32.868  11.699 -19.798  1.00 18.20
+ATOM      8  O   MET A   1      31.352   9.991 -20.514  1.00 14.01
+ATOM     14  CA  THR A   2      29.469  10.501 -18.503  1.00  8.85
+ATOM     16  O   THR A   2      28.506  12.405 -17.424  1.00  9.24
+ATOM     21  CA  GLU A   3      25.982  11.973 -18.580  1.00  7.86
+ATOM     23  O   GLU A   3      25.183  10.124 -17.284  1.00 10.54
+ATOM     30  CA  TYR A   4      23.831  11.770 -15.434  1.00  5.96
+ATOM     32  O   TYR A   4      22.506  13.755 -15.463  1.00  9.59
+ATOM     42  CA  LYS A   5      20.060  12.358 -15.581  1.00  4.78
+ATOM     44  O   LYS A   5      19.189  11.442 -13.536  1.00  7.64
+ATOM     51  CA  LEU A   6      19.095  13.947 -12.231  1.00  3.93
+ATOM     53  O   LEU A   6      17.442  15.397 -13.151  1.00  7.83
+ATOM     59  CA  VAL A   7      15.561  14.829 -11.164  1.00  3.91
+ATOM     61  O   VAL A   7      15.756  14.833  -8.796  1.00  6.65
+ATOM     66  CA  VAL A   8      14.640  17.432  -8.517  1.00  3.35
+ATOM     68  O   VAL A   8      12.377  17.939  -9.083  1.00  5.95
+ATOM     73  CA  VAL A   9      11.295  16.554  -6.851  1.00  3.77
+ATOM     75  O   VAL A   9      11.893  17.240  -4.641  1.00  5.98
+ATOM     80  CA  GLY A  10       9.270  17.814  -3.882  1.00  5.33
+ATOM     82  O   GLY A  10       7.737  19.186  -5.100  1.00  7.83
+ATOM     84  CA  ALA A  11       6.270  19.888  -2.752  1.00  6.89
+ATOM     86  O   ALA A  11       7.538  21.783  -3.563  1.00  6.33
+ATOM     89  CA  ASP A  12       5.244  23.136  -4.447  1.00  5.17
+ATOM     91  O   ASP A  12       5.014  24.557  -2.506  1.00  8.50
+ATOM     97  CA  GLY A  13       7.512  25.848  -2.964  1.00  6.87
+ATOM     99  O   GLY A  13       9.197  26.392  -1.386  1.00  8.83
+ATOM    101  CA  VAL A  14      10.293  23.825  -1.255  1.00  4.46
+ATOM    103  O   VAL A  14      12.594  24.412  -0.932  1.00  7.73
+ATOM    108  CA  GLY A  15      12.872  25.544  -3.488  1.00  4.95
+ATOM    110  O   GLY A  15      14.759  24.892  -4.768  1.00  5.79
+ATOM    112  CA  LYS A  16      13.440  23.025  -6.339  1.00  4.97
+ATOM    114  O   LYS A  16      15.316  23.606  -7.745  1.00  6.93
+ATOM    121  CA  SER A  17      13.971  25.752  -8.994  1.00  4.13
+ATOM    123  O   SER A  17      16.166  26.688  -9.177  1.00  6.75
+ATOM    127  CA  ALA A  18      16.046  28.038  -6.727  1.00  6.00
+ATOM    129  O   ALA A  18      18.392  27.667  -6.768  1.00  8.05
+ATOM    132  CA  LEU A  19      18.308  25.056  -5.809  1.00  5.20
+ATOM    134  O   LEU A  19      20.290  24.946  -7.143  1.00  7.82
+ATOM    140  CA  THR A  20      18.897  24.188  -9.500  1.00  6.04
+ATOM    142  O   THR A  20      20.651  25.345 -10.631  1.00  9.32
+ATOM    147  CA  ILE A  21      19.328  27.824 -10.661  1.00  4.62
+ATOM    149  O   ILE A  21      21.516  28.778 -10.527  1.00  8.65
+ATOM    155  CA  GLN A  22      21.802  28.426  -7.805  1.00  6.04
+ATOM    157  O   GLN A  22      24.071  28.114  -8.546  1.00  7.28
+ATOM    164  CA  LEU A  23      23.879  25.359  -8.844  1.00  6.73
+ATOM    166  O   LEU A  23      25.637  25.875 -10.374  1.00 12.37
+ATOM    172  CA  ILE A  24      23.872  26.291 -12.589  1.00  9.92
+ATOM    174  O   ILE A  24      25.400  27.939 -13.419  1.00 12.68
+ATOM    180  CA  GLN A  25      23.708  30.112 -12.740  1.00  7.63
+ATOM    182  O   GLN A  25      24.508  32.166 -11.812  1.00 11.07
+ATOM    189  CA  ASN A  26      25.274  31.030  -9.308  1.00  8.79
+ATOM    191  O   ASN A  26      25.118  33.226  -8.311  1.00 10.82
+ATOM    197  CA  HIS A  27      22.360  33.239  -8.205  1.00  9.25
+ATOM    199  O   HIS A  27      20.589  31.644  -8.010  1.00  7.75
+ATOM    207  CA  PHE A  28      19.379  33.055  -5.861  1.00  5.67
+ATOM    209  O   PHE A  28      18.216  35.024  -6.556  1.00 10.68
+ATOM    218  CA  VAL A  29      15.880  33.578  -7.336  1.00  8.60
+ATOM    220  O   VAL A  29      14.530  32.859  -5.480  1.00 10.80
+ATOM    225  CA  ASP A  30      13.767  35.454  -4.726  1.00 10.91
+ATOM    227  O   ASP A  30      11.426  35.015  -4.322  1.00 13.87
+ATOM    233  CA  GLU A  31      10.710  35.402  -7.041  1.00  9.43
+ATOM    235  O   GLU A  31      10.935  33.025  -6.929  1.00  9.37
+ATOM    242  CA  TYR A  32       8.128  32.603  -7.005  1.00  7.36
+ATOM    244  O   TYR A  32       6.391  32.994  -8.640  1.00 10.32
+ATOM    255  CA AASP A  33       7.672  31.426 -10.631  0.48  7.63
+ATOM    256  CA BASP A  33       7.658  31.420 -10.630  0.52  8.44
+ATOM    259  O  AASP A  33       8.343  29.138 -10.815  0.48  9.59
+ATOM    260  O  BASP A  33       8.342  29.135 -10.800  0.52  9.98
+ATOM    270  CA  PRO A  34       5.800  28.041 -10.610  1.00  7.89
+ATOM    272  O   PRO A  34       6.096  27.855 -12.975  1.00 10.89
+ATOM    277  CA  THR A  35       7.444  25.374 -12.782  1.00  6.30
+ATOM    279  O   THR A  35       5.774  23.707 -12.565  1.00 10.40
+ATOM    284  CA  ILE A  36       5.761  23.111 -15.363  1.00  7.49
+ATOM    286  O   ILE A  36       6.794  21.019 -14.831  1.00 11.29
+ATOM    292  CA  GLU A  37       9.088  21.468 -16.414  1.00  8.40
+ATOM    294  O   GLU A  37       9.919  22.662 -18.289  1.00 13.79
+ATOM    301  CA  ASP A  38      12.548  22.780 -17.290  1.00  6.84
+ATOM    303  O   ASP A  38      13.757  21.168 -16.065  1.00  9.44
+ATOM    309  CA  SER A  39      15.903  21.094 -17.777  1.00  6.32
+ATOM    311  O   SER A  39      17.056  23.033 -18.624  1.00  8.15
+ATOM    315  CA  TYR A  40      19.350  22.514 -16.988  1.00  6.84
+ATOM    317  O   TYR A  40      20.435  20.390 -17.093  1.00  9.89
+ATOM    328  CA AARG A  41      22.955  21.481 -17.745  0.47  8.17
+ATOM    329  CA BARG A  41      22.938  21.471 -17.727  0.53  8.51
+ATOM    332  O  AARG A  41      24.281  23.285 -16.925  0.47 10.76
+ATOM    333  O  BARG A  41      24.304  23.279 -16.971  0.53 10.73
+ATOM    349  CA  LYS A  42      26.216  21.591 -15.796  1.00  8.72
+ATOM    351  O   LYS A  42      27.113  19.390 -15.655  1.00  9.23
+ATOM    358  CA  GLN A  43      29.602  20.144 -16.757  1.00  9.03
+ATOM    360  O   GLN A  43      30.897  21.561 -15.319  1.00 14.16
+ATOM    367  CA  VAL A  44      31.599  19.457 -13.598  1.00 12.94
+ATOM    369  O   VAL A  44      32.103  17.128 -13.872  1.00 16.94
+ATOM    374  CA  VAL A  45      34.551  17.261 -12.545  1.00 11.89
+ATOM    376  O   VAL A  45      34.352  17.573 -10.164  1.00 13.56
+ATOM    381  CA  ILE A  46      33.560  14.881  -9.683  1.00 11.59
+ATOM    383  O   ILE A  46      34.313  12.754 -10.449  1.00 15.15
+ATOM    389  CA  ASP A  47      36.235  12.436  -8.385  1.00 15.50
+ATOM    391  O   ASP A  47      37.094  10.874 -10.018  1.00 20.71
+ATOM    397  CA  GLY A  48      38.277  12.881 -11.615  1.00 18.09
+ATOM    399  O   GLY A  48      38.135  12.298 -13.920  1.00 24.07
+ATOM    401  CA  GLU A  49      35.331  12.150 -13.946  1.00 15.69
+ATOM    403  O   GLU A  49      34.088  14.163 -13.597  1.00 14.47
+ATOM    410  CA  THR A  50      33.869  14.776 -16.308  1.00 11.77
+ATOM    412  O   THR A  50      32.043  13.414 -17.063  1.00 13.80
+ATOM    417  CA  CYS A  51      30.188  14.672 -15.378  1.00  8.68
+ATOM    419  O   CYS A  51      29.457  16.906 -15.805  1.00 11.43
+ATOM    423  CA  LEU A  52      27.572  16.106 -17.750  1.00  8.00
+ATOM    425  O   LEU A  52      25.503  14.963 -17.295  1.00  9.14
+ATOM    431  CA  LEU A  53      24.657  16.782 -15.349  1.00  6.17
+ATOM    433  O   LEU A  53      23.548  18.492 -16.586  1.00  6.94
+ATOM    439  CA  ASP A  54      21.322  16.820 -17.157  1.00  5.44
+ATOM    441  O   ASP A  54      19.729  15.751 -15.719  1.00  6.84
+ATOM    447  CA  ILE A  55      18.981  18.144 -14.469  1.00  4.63
+ATOM    449  O   ILE A  55      17.351  19.610 -15.414  1.00  6.78
+ATOM    455  CA  LEU A  56      15.197  18.036 -14.638  1.00  4.68
+ATOM    457  O   LEU A  56      14.552  18.163 -12.328  1.00  6.06
+ATOM    463  CA  ASP A  57      13.412  20.722 -12.573  1.00  4.44
+ATOM    465  O   ASP A  57      11.393  20.890 -13.855  1.00  8.15
+ATOM    471  CA  THR A  58       9.874  19.344 -12.017  1.00  4.39
+ATOM    473  O   THR A  58       9.143  21.148 -10.584  1.00  6.67
+ATOM    478  CA  ALA A  59       6.410  20.642 -11.035  1.00  6.50
+ATOM    480  O   ALA A  59       5.794  18.919  -9.467  1.00 10.29
+ATOM    483  CA  GLY A  60       5.434  20.733  -7.361  1.00  7.02
+ATOM    485  O   GLY A  60       3.288  20.092  -6.521  1.00  8.74
+ATOM    487  CA  GLN A  61       1.855  21.649  -8.408  1.00  9.11
+ATOM    489  O   GLN A  61       1.715  19.707  -9.790  1.00 12.04
+ATOM    496  CA  GLU A  62      -0.389  18.516  -8.259  1.00 12.13
+ATOM    498  O   GLU A  62      -1.323  17.358 -10.130  1.00 15.33
+ATOM    505  CA  GLU A  63      -1.973  19.808 -11.541  1.00 13.16
+ATOM    507  O   GLU A  63      -1.795  18.537 -13.578  1.00 14.76
+ATOM    514  CA  TYR A  64       1.019  18.333 -13.483  1.00 11.37
+ATOM    516  O   TYR A  64       2.516  16.465 -13.595  1.00 13.79
+ATOM    526  CA  SER A  65       1.308  15.032 -11.498  1.00 10.57
+ATOM    528  O   SER A  65       2.082  12.931 -12.310  1.00 16.10
+ATOM    532  CA  ALA A  66       0.525  12.893 -14.661  1.00 13.38
+ATOM    534  O   ALA A  66       2.151  11.745 -16.002  1.00 13.85
+ATOM    537  CA  MET A  67       4.019  13.878 -15.978  1.00  9.42
+ATOM    539  O   MET A  67       6.099  12.712 -15.760  1.00 13.71
+ATOM    545  CA  ARG A  68       5.686  12.014 -13.077  1.00 11.28
+ATOM    547  O   ARG A  68       7.357  10.430 -13.583  1.00 13.48
+ATOM    557  CA AASP A  69       5.519   8.480 -14.570  0.45 10.73
+ATOM    558  CA BASP A  69       5.590   8.443 -14.515  0.55 11.08
+ATOM    561  O  AASP A  69       7.719   7.804 -15.236  0.45 12.35
+ATOM    562  O  BASP A  69       7.749   7.771 -15.292  0.55 12.25
+ATOM    572  CA  GLN A  70       7.677   9.222 -17.678  1.00 10.45
+ATOM    574  O   GLN A  70      10.055   9.235 -17.503  1.00 11.73
+ATOM    581  CA  TYR A  71      10.273  11.454 -15.971  1.00  7.99
+ATOM    583  O   TYR A  71      12.158  10.480 -14.873  1.00  9.59
+ATOM    593  CA  MET A  72      10.678   8.884 -13.160  1.00  5.75
+ATOM    595  O   MET A  72      12.416   7.302 -13.446  1.00  9.16
+ATOM    601  CA  ARG A  73      11.301   6.046 -15.686  1.00  7.97
+ATOM    603  O   ARG A  73      13.599   5.711 -16.318  1.00  9.81
+ATOM    612  CA  THR A  74      13.878   8.242 -17.518  1.00  7.29
+ATOM    614  O   THR A  74      16.184   8.447 -16.890  1.00  9.62
+ATOM    619  CA  GLY A  75      15.628   9.789 -14.469  1.00  7.46
+ATOM    621  O   GLY A  75      15.968   7.614 -13.541  1.00  9.45
+ATOM    623  CA  GLU A  76      18.655   7.997 -12.971  1.00  5.51
+ATOM    625  O   GLU A  76      18.917   7.188 -10.736  1.00 10.03
+ATOM    632  CA  GLY A  77      18.806   9.740  -9.588  1.00  5.45
+ATOM    634  O   GLY A  77      17.550  11.708 -10.078  1.00  7.58
+ATOM    636  CA  PHE A  78      16.446  11.830  -7.487  1.00  4.97
+ATOM    638  O   PHE A  78      17.233  12.049  -5.241  1.00  8.93
+ATOM    647  CA  LEU A  79      16.944  14.824  -5.220  1.00  6.89
+ATOM    649  O   LEU A  79      14.681  15.637  -5.329  1.00  6.78
+ATOM    655  CA  CYS A  80      13.915  14.568  -2.833  1.00  6.05
+ATOM    657  O   CYS A  80      14.542  15.579  -0.740  1.00  6.84
+ATOM    661  CA  VAL A  81      13.575  18.128  -1.535  1.00  5.08
+ATOM    663  O   VAL A  81      11.237  18.431  -1.183  1.00  6.89
+ATOM    668  CA  PHE A  82      11.551  19.310   1.454  1.00  5.40
+ATOM    670  O   PHE A  82      13.342  20.842   1.864  1.00  7.04
+ATOM    679  CA  ALA A  83      11.749  22.735   3.170  1.00  6.65
+ATOM    681  O   ALA A  83      10.753  22.014   5.222  1.00  8.93
+ATOM    684  CA  ILE A  84      12.946  22.791   6.831  1.00  6.67
+ATOM    686  O   ILE A  84      11.805  23.371   8.879  1.00 11.64
+ATOM    692  CA  ASN A  85      10.057  25.250   7.678  1.00  7.48
+ATOM    694  O   ASN A  85       7.682  25.466   7.315  1.00 11.54
+ATOM    700  CA  ASN A  86       7.387  22.996   6.051  1.00  7.93
+ATOM    702  O   ASN A  86       7.725  20.680   5.507  1.00  9.45
+ATOM    708  CA  THR A  87       6.459  19.715   7.841  1.00  9.88
+ATOM    710  O   THR A  87       6.011  17.746   6.540  1.00 10.75
+ATOM    715  CA  LYS A  88       3.882  18.849   5.091  1.00  8.11
+ATOM    717  O   LYS A  88       4.714  17.261   3.485  1.00 10.63
+ATOM    724  CA  SER A  89       6.693  18.932   2.442  1.00  6.83
+ATOM    726  O   SER A  89       7.969  16.961   2.024  1.00  9.43
+ATOM    730  CA  PHE A  90       8.721  16.599   4.742  1.00  7.09
+ATOM    732  O   PHE A  90       8.455  14.268   4.217  1.00 10.84
+ATOM    741  CA  GLU A  91       5.726  14.174   4.922  1.00  9.52
+ATOM    743  O   GLU A  91       5.343  12.536   3.200  1.00 14.56
+ATOM    750  CA  ASP A  92       5.317  14.426   1.083  1.00  7.93
+ATOM    752  O   ASP A  92       6.178  12.919  -0.540  1.00 11.97
+ATOM    758  CA  ILE A  93       8.797  12.849   0.584  1.00  8.85
+ATOM    760  O   ILE A  93       8.746  10.779  -0.598  1.00 11.36
+ATOM    766  CA  HIS A  94       7.246   9.413   1.390  1.00 12.57
+ATOM    768  O   HIS A  94       6.852   8.079  -0.568  1.00 14.09
+ATOM    776  CA  HIS A  95       4.734   9.723  -1.528  1.00 14.60
+ATOM    778  O   HIS A  95       5.393   8.957  -3.704  1.00 13.88
+ATOM    786  CA  TYR A  96       7.391  10.905  -4.048  1.00  9.23
+ATOM    788  O   TYR A  96       8.385   9.070  -5.198  1.00 11.58
+ATOM    798  CA  ARG A  97       9.771   8.090  -2.951  1.00  9.37
+ATOM    800  O   ARG A  97       9.519   6.025  -4.123  1.00 12.63
+ATOM    809  CA  GLU A  98       6.964   5.453  -3.185  1.00 11.98
+ATOM    811  O   GLU A  98       6.756   4.275  -5.259  1.00 15.01
+ATOM    818  CA  GLN A  99       6.064   6.510  -6.768  1.00 10.88
+ATOM    820  O   GLN A  99       7.268   5.355  -8.470  1.00 13.70
+ATOM    827  CA  ILE A 100       9.749   6.583  -7.913  1.00  7.69
+ATOM    829  O   ILE A 100      10.372   4.490  -8.912  1.00 11.10
+ATOM    835  CA  LYS A 101      10.404   3.044  -6.506  1.00 11.33
+ATOM    837  O   LYS A 101       9.974   1.193  -7.951  1.00 15.17
+ATOM    844  CA  ARG A 102       7.183   1.627  -8.031  1.00 15.23
+ATOM    846  O   ARG A 102       7.477   0.697 -10.211  1.00 16.55
+ATOM    855  CA  VAL A 103       7.553   3.278 -11.493  1.00 12.75
+ATOM    857  O   VAL A 103       8.811   2.064 -13.147  1.00 14.73
+ATOM    862  CA  LYS A 104      11.247   2.187 -11.728  1.00  9.46
+ATOM    864  O   LYS A 104      12.434   0.118 -11.811  1.00 15.19
+ATOM    871  CA  ASP A 105      10.667  -1.246 -10.005  1.00 16.34
+ATOM    873  O   ASP A 105      12.804  -2.382  -9.728  1.00 20.77
+ATOM    879  CA  SER A 106      13.751  -0.433  -7.869  1.00 16.69
+ATOM    881  O   SER A 106      13.443   1.473  -6.419  1.00 20.98
+ATOM    885  CA  GLU A 107      13.691  -0.030  -4.073  1.00 12.13
+ATOM    887  O   GLU A 107      15.126   1.348  -2.734  1.00 20.81
+ATOM    894  CA  ASP A 108      17.389   0.703  -4.453  1.00 15.13
+ATOM    896  O   ASP A 108      18.914   2.447  -5.117  1.00 17.62
+ATOM    902  CA  VAL A 109      16.939   3.887  -6.668  1.00  9.05
+ATOM    904  O   VAL A 109      17.652   5.369  -4.907  1.00 10.75
+ATOM    909  CA  PRO A 110      19.755   6.515  -6.298  1.00  6.63
+ATOM    911  O   PRO A 110      18.048   8.178  -6.690  1.00  7.06
+ATOM    916  CA  MET A 111      18.240   9.218  -4.091  1.00  6.82
+ATOM    918  O   MET A 111      19.762   9.263  -2.248  1.00  8.02
+ATOM    924  CA  VAL A 112      19.338  12.008  -1.728  1.00  4.64
+ATOM    926  O   VAL A 112      17.387  13.389  -1.841  1.00  7.12
+ATOM    931  CA  LEU A 113      17.078  13.601   0.949  1.00  4.34
+ATOM    933  O   LEU A 113      18.801  15.101   1.627  1.00  7.41
+ATOM    939  CA  VAL A 114      17.470  17.404   0.790  1.00  4.49
+ATOM    941  O   VAL A 114      15.370  18.388   1.329  1.00  8.66
+ATOM    946  CA  GLY A 115      16.354  19.729   3.616  1.00  6.27
+ATOM    948  O   GLY A 115      17.824  21.587   3.647  1.00  9.86
+ATOM    950  CA  ASN A 116      16.280  23.109   1.876  1.00  5.05
+ATOM    952  O   ASN A 116      14.962  24.024   3.659  1.00  9.09
+ATOM    958  CA  LYS A 117      15.976  26.739   3.211  1.00  5.92
+ATOM    960  O   LYS A 117      16.071  27.422   5.501  1.00  9.96
+ATOM    968  CA ACYS A 118      18.437  26.074   6.096  0.47  8.64
+ATOM    969  CA BCYS A 118      18.530  26.141   6.035  0.53  8.60
+ATOM    972  O  ACYS A 118      19.494  27.553   7.675  0.47 14.86
+ATOM    973  O  BCYS A 118      19.507  27.584   7.659  0.53 14.94
+ATOM    979  CA  ASP A 119      19.360  29.855   6.030  1.00 10.59
+ATOM    981  O   ASP A 119      18.539  31.523   7.567  1.00 17.03
+ATOM    987  CA  LEU A 120      15.892  30.343   7.797  1.00 15.05
+ATOM    989  O   LEU A 120      15.807  28.697   9.550  1.00 25.96
+ATOM    995  CA  PRO A 121      15.700  30.477  11.657  1.00 25.51
+ATOM    997  O   PRO A 121      14.455  28.916  12.964  1.00 29.58
+ATOM   1002  CA  SER A 122      11.931  29.639  11.994  1.00 27.57
+ATOM   1004  O   SER A 122      11.073  28.128  10.305  1.00 29.26
+ATOM   1008  CA  ARG A 123      12.546  25.878  11.409  1.00 23.42
+ATOM   1010  O   ARG A 123      11.452  25.142  13.408  1.00 22.92
+ATOM   1019  CA  THR A 124       9.874  23.170  12.056  1.00 16.09
+ATOM   1021  O   THR A 124       9.684  20.827  12.555  1.00 16.69
+ATOM   1026  CA  VAL A 125      11.778  20.031  10.845  1.00 10.53
+ATOM   1028  O   VAL A 125      14.061  20.692  10.698  1.00 13.48
+ATOM   1033  CA  ASP A 126      14.886  19.429  12.997  1.00 15.09
+ATOM   1035  O   ASP A 126      15.344  17.574  11.542  1.00 15.99
+ATOM   1041  CA  THR A 127      18.174  17.921  11.684  1.00 13.61
+ATOM   1043  O   THR A 127      18.099  15.587  11.154  1.00 14.62
+ATOM   1048  CA  LYS A 128      17.600  14.736  13.801  1.00 14.65
+ATOM   1050  O   LYS A 128      16.601  12.855  12.714  1.00 16.48
+ATOM   1057  CA  GLN A 129      14.073  14.097  12.319  1.00 13.68
+ATOM   1059  O   GLN A 129      14.066  12.549  10.479  1.00 13.53
+ATOM   1066  CA  ALA A 130      15.504  14.256   8.783  1.00 10.68
+ATOM   1068  O   ALA A 130      16.494  12.339   7.787  1.00 12.30
+ATOM   1071  CA  GLN A 131      18.606  12.158   9.652  1.00 10.83
+ATOM   1073  O   GLN A 131      18.361   9.808   9.237  1.00 12.12
+ATOM   1080  CA  ASP A 132      16.289   9.465  11.141  1.00 11.29
+ATOM   1082  O   ASP A 132      15.569   7.766   9.633  1.00 13.48
+ATOM   1088  CA  LEU A 133      14.106   9.496   7.984  1.00 10.70
+ATOM   1090  O   LEU A 133      14.814   7.904   6.363  1.00 13.16
+ATOM   1096  CA  ALA A 134      17.151   9.265   5.673  1.00  9.58
+ATOM   1098  O   ALA A 134      17.959   7.071   5.155  1.00 11.14
+ATOM   1101  CA  ARG A 135      18.515   6.358   7.858  1.00 10.33
+ATOM   1103  O   ARG A 135      17.885   4.138   7.197  1.00 13.45
+ATOM   1112  CA  SER A 136      15.119   4.559   7.487  1.00 12.78
+ATOM   1114  O   SER A 136      14.657   3.118   5.637  1.00 17.76
+ATOM   1118  CA  TYR A 137      15.499   4.912   3.673  1.00 11.48
+ATOM   1120  O   TYR A 137      16.907   3.775   2.097  1.00 16.72
+ATOM   1130  CA  GLY A 138      19.236   4.057   3.697  1.00 11.65
+ATOM   1132  O   GLY A 138      20.594   4.483   1.767  1.00 14.28
+ATOM   1134  CA  ILE A 139      19.997   7.248   1.706  1.00  7.86
+ATOM   1136  O   ILE A 139      20.392   8.651   3.597  1.00 10.84
+ATOM   1142  CA  PRO A 140      22.131  10.394   2.372  1.00  7.78
+ATOM   1144  O   PRO A 140      20.125  11.618   1.899  1.00  8.30
+ATOM   1149  CA  PHE A 141      20.627  13.545   3.967  1.00  5.64
+ATOM   1151  O   PHE A 141      22.633  14.693   4.582  1.00  9.89
+ATOM   1160  CA  ILE A 142      22.012  16.993   3.071  1.00  6.94
+ATOM   1162  O   ILE A 142      20.090  18.361   2.650  1.00  8.98
+ATOM   1168  CA  GLU A 143      20.908  20.394   4.450  1.00  7.16
+ATOM   1170  O   GLU A 143      22.622  21.448   3.152  1.00  9.14
+ATOM   1177  CA  THR A 144      20.886  23.108   1.754  1.00  5.28
+ATOM   1179  O   THR A 144      19.193  24.598   2.590  1.00  8.47
+ATOM   1184  CA  SER A 145      20.185  26.762   1.090  1.00  6.18
+ATOM   1186  O   SER A 145      21.627  27.432  -0.684  1.00  7.83
+ATOM   1190  CA  ALA A 146      19.563  27.933  -2.485  1.00  5.59
+ATOM   1192  O   ALA A 146      20.518  29.973  -3.348  1.00  9.37
+ATOM   1195  CA  LYS A 147      20.088  31.444  -1.016  1.00  5.85
+ATOM   1197  O   LYS A 147      22.210  32.439  -1.537  1.00 10.39
+ATOM   1204  CA  THR A 148      23.585  31.088   0.547  1.00  6.29
+ATOM   1206  O   THR A 148      25.740  30.242  -0.009  1.00  8.54
+ATOM   1211  CA  ARG A 149      24.668  27.996  -1.511  1.00  7.78
+ATOM   1213  O   ARG A 149      25.750  25.915  -0.949  1.00  8.76
+ATOM   1222  CA  GLN A 150      25.122  26.000   1.783  1.00  6.64
+ATOM   1224  O   GLN A 150      23.511  24.510   0.831  1.00  8.66
+ATOM   1231  CA  GLY A 151      25.291  22.269   0.859  1.00  6.05
+ATOM   1233  O   GLY A 151      24.658  20.787  -0.895  1.00  7.15
+ATOM   1235  CA  VAL A 152      24.124  22.819  -2.793  1.00  5.47
+ATOM   1237  O   VAL A 152      24.476  20.897  -4.168  1.00  8.24
+ATOM   1242  CA  ASP A 153      27.215  21.351  -4.558  1.00  6.69
+ATOM   1244  O   ASP A 153      27.141  18.981  -4.709  1.00  8.59
+ATOM   1250  CA  ASP A 154      27.332  18.530  -1.933  1.00  6.30
+ATOM   1252  O   ASP A 154      26.183  16.501  -2.499  1.00  9.08
+ATOM   1258  CA  ALA A 155      23.643  17.581  -2.584  1.00  5.82
+ATOM   1260  O   ALA A 155      23.491  15.764  -4.151  1.00  7.29
+ATOM   1263  CA  PHE A 156      24.114  17.303  -6.378  1.00  5.39
+ATOM   1265  O   PHE A 156      25.015  15.263  -7.205  1.00  6.97
+ATOM   1274  CA  TYR A 157      27.594  15.671  -6.210  1.00  7.84
+ATOM   1276  O   TYR A 157      27.707  13.304  -6.066  1.00  8.04
+ATOM   1286  CA  THR A 158      26.405  13.123  -3.587  1.00  6.51
+ATOM   1288  O   THR A 158      25.670  11.055  -4.517  1.00  9.61
+ATOM   1293  CA  LEU A 159      23.507  12.159  -5.928  1.00  5.01
+ATOM   1295  O   LEU A 159      23.990  10.306  -7.348  1.00  7.50
+ATOM   1301  CA  VAL A 160      25.979  11.611  -8.818  1.00  5.93
+ATOM   1303  O   VAL A 160      26.691   9.318  -8.923  1.00  7.82
+ATOM   1308  CA  ARG A 161      28.104   9.381  -6.492  1.00  6.58
+ATOM   1310  O   ARG A 161      27.592   7.027  -6.407  1.00  9.61
+ATOM   1319  CA  GLU A 162      24.938   7.400  -5.511  1.00  6.63
+ATOM   1321  O   GLU A 162      24.422   5.442  -6.786  1.00 10.96
+ATOM   1328  CA  ILE A 163      24.152   6.813  -9.255  1.00  7.33
+ATOM   1330  O   ILE A 163      25.107   4.783 -10.080  1.00 12.45
+ATOM   1336  CA  ARG A 164      27.784   5.780  -9.933  1.00 12.57
+ATOM   1338  O   ARG A 164      28.044   3.390  -9.854  1.00 18.37
+ATOM   1347  CA  LYS A 165      27.622   3.232  -7.044  1.00 15.03
+ATOM   1349  O   LYS A 165      26.833   1.033  -7.465  1.00 17.34
+ATOM   1356  CA  HIS A 166      24.228   1.867  -8.208  1.00 14.09
+ATOM   1358  O   HIS A 166      24.195  -0.021  -9.664  1.00 19.86
+ATOM   1366  CA  LYS A 167      25.631   1.277 -11.727  1.00 18.16
+ATOM   1368  O   LYS A 167      26.951  -0.541 -12.588  1.00 26.86
+ATOM   1375  CA  GLU A 168      28.016  -1.264 -10.007  1.00 51.53
+ATOM   1377  O   GLU A 168      26.533  -2.272  -8.402  1.00 41.85`;var $0={paper:{bg:"#F2ECDF",ink:"#1B1A18",H:"#D33A2C",E:"#1F63B0",C:"#C99410",mono:"#34312D",P:["#0053D6","#65CBF3","#D9B400","#FF7D45"]},night:{bg:"#121212",ink:"#F2ECDF",H:"#D33A2C",E:"#1F63B0",C:"#EFB52E",mono:"#E8E1D2",P:["#0053D6","#65CBF3","#FFDB13","#FF7D45"]}},C0={classic:" .,:;-=+*x#%@",blocks:" \xB7\u2591\u2591\u2592\u2592\u2593\u2593\u2588\u2588",geo:" \xB7\u2219\u2022\u25E6\u25CB\u25CE\u25CF\u25C9\u25A0"},z0={coarse:46,medium:64,fine:92,ultra:128},Ot={theme:"paper",colour:"ss",layout:"lr",seam:"dither",glyphs:"classic",detail:"medium",spin:.35,blendFrom:.25,blendTo:.8,interactive:!0,background:!0,palette:null,font:'"JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace'},Mt=7e4,Tt=.4,ft=10,Y1=Q([-.45,.55,.75]),k1=t=>(t=t.trim().replace("#",""),[0,2,4].map(n=>parseInt(t.slice(n,n+2),16))),ut=(t,n,l)=>{let o=Math.min(1,Math.max(0,(l-t)/Math.max(1e-6,n-t)));return o*o*(3-2*o)};function N0(t,n={}){let l=typeof matchMedia=="function"&&matchMedia("(prefers-reduced-motion: reduce)").matches,o={...Ot,...l&&n.spin===void 0?{spin:0}:{},...n},c={...G1,...n.shape||{}},L={},d=(e,r)=>(L[e]||[]).forEach(p=>p(r));getComputedStyle(t).position==="static"&&(t.style.position="relative");let T=document.createElement("div");T.className="ascii-fold",T.style.cssText="position:absolute;inset:0;overflow:hidden;display:flex;align-items:center;justify-content:center;user-select:none;-webkit-user-select:none;touch-action:none;";let C=document.createElement("div");C.style.cssText="position:relative;width:max-content;";let a=document.createElement("canvas");a.style.cssText="position:absolute;left:0;top:0;pointer-events:none;",a.setAttribute("aria-hidden","true");let O=document.createElement("pre");O.style.cssText="margin:0;white-space:pre;line-height:1;font-weight:700;position:relative;",O.setAttribute("aria-hidden","true");let A=document.createElement("span");A.textContent="MMMMMMMMMM",A.style.cssText="position:absolute;visibility:hidden;white-space:pre;line-height:1;font-weight:700;left:-9999px;top:0;",C.append(a,O),T.append(C,A),t.append(T),T.setAttribute("role","img");let s=a.getContext("2d"),u=document.createElement("canvas"),I=u.getContext("2d"),E=null,U=null,z=null,P=112,V=64,q=8,t1=13,r1=.6,f1=.6,l1=-.35,n1=1,a1=0,i=0,h,G,x,e1,m1,c1,K=[],b=null,O1=C0.classic;function M1(){u.width=P,u.height=V,h=I.createImageData(P,V);let e=P*V;G=new Float32Array(e);for(let r=0;r<e;r++){let p=Math.sin(r*12.9898+78.233)*43758.5453;G[r]=p-Math.floor(p)}x=new Float32Array(e),e1=new Float32Array(e),m1=new Float32Array(e),c1=new Int32Array(e)}function A1(){let e={...$0[o.theme]||$0.paper,...o.palette||{}};b={paper:k1(e.bg),ink:k1(e.ink),H:k1(e.H),E:k1(e.E),C:k1(e.C),mono:k1(e.mono),P:e.P.map(k1),css:e},O.style.color=e.ink,O.style.fontFamily=A.style.fontFamily=o.font,T.style.background=o.background?e.bg:"transparent",O1=C0[o.glyphs]||(typeof o.glyphs=="string"&&o.glyphs.length>2?o.glyphs:C0.classic),T.style.cursor=o.interactive?"grab":"default"}function u1(){let e=T.clientWidth,r=T.clientHeight;if(!e||!r)return;A.style.fontSize="100px";let p=A.getBoundingClientRect().width/10/100||.6,w=typeof o.detail=="number"?o.detail:z0[o.detail]||z0.medium,Y=r/w;for(;w>16&&w*Math.floor(e/(Y*p))>Mt;)w-=2,Y=r/w;A.style.fontSize=Y+"px",q=A.getBoundingClientRect().width/10||Y*p,t1=Y,r1=q/t1;let k=Math.max(16,Math.floor(e/q));(k!==P||w!==V||!G)&&(P=k,V=w,M1()),O.style.fontSize=Y+"px";let F=window.devicePixelRatio||1;a.style.width=P*q+"px",a.style.height=V*t1+"px",a.width=Math.round(P*q*F),a.height=Math.round(V*t1*F)}let z1=e=>`rgb(${e[0]|0},${e[1]|0},${e[2]|0})`;function N(e,r,p){let w=.25+.75*r,Y=e.map(F=>F*(.5+.5*w)+(255-F)*.28*Math.pow(r,3)),k=(1-p)*.45;return z1(Y.map((F,$)=>F*(1-k)+b.paper[$]*k))}let l0=()=>o.colour==="plddt"&&!(E&&E.hasPlddt)?"ss":o.colour,S0=e=>{let r=l0();return r==="ss"?b.css[e.ss]:r==="plddt"?b.css.P[e.pk]:null},a0=(e,r)=>{let p=l0();return p==="ss"?b[r]:p==="plddt"?b.P[e.pk]:b.mono},W1=()=>E?Math.min((P*.5-2)/E.R,(V*.5-1)/(E.R*r1)):1;function c0(e,r=P/2,p=V/2){let w=Math.max(Tt,Math.min(ft,n1*e));if(w===n1)return;let Y=W1()*n1,k=W1()*w,F=P/2,$=V/2,s1=(r-F)/Y-a1,L1=($-p)/(Y*r1)-i;a1=(r-F)/k-s1,i=($-p)/(k*r1)-L1,n1=w,d("zoom",n1)}function g0(e,r){let p=W1()*n1;a1+=e/q/p,i-=r/t1/(p*r1)}function E0(e,r){let p=C.getBoundingClientRect();return[(e-p.left)/q,(r-p.top)/t1]}function O0(e=!1){n1=1,a1=0,i=0,e&&(f1=.6,l1=-.35),d("zoom",n1)}let j0=e=>o.layout==="ascii"?1:o.layout==="ribbon"?0:1-ut(o.blendFrom,o.blendTo,o.layout==="lr"?e:1-e);function X0(){if(!E||!G)return;let{pts:e,R:r}=E,p=Math.cos(f1),w=Math.sin(f1),Y=Math.cos(l1),k=Math.sin(l1),F=M=>{let D=M[0]*p+M[2]*w,H=-M[0]*w+M[2]*p;return[D,M[1]*Y-H*k,M[1]*k+H*Y]},$=W1()*n1,s1=P/2,L1=V/2,b0=Math.max(0,s1+(a1-r)*$),Z0=Math.min(P,s1+(a1+r)*$),J0=Math.max(1,Z0-b0);x.fill(-1e9);let u0=new Array(e.length);for(let M=0;M<e.length;M++){let D=e[M],H=F(D.p);u0[M]=H;let W=D.r,m=s1+(H[0]+a1)*$,R=L1-(H[1]+i)*$*r1,v=W*$,B=W*$*r1,j=Math.max(0,Math.floor(m-v)),_=Math.min(P-1,Math.ceil(m+v)),X=Math.max(0,Math.floor(R-B)),i1=Math.min(V-1,Math.ceil(R+B));for(let Z=X;Z<=i1;Z++){let J=(Z+.5-R)/B;for(let w1=j;w1<=_;w1++){let h1=(w1+.5-m)/v,S1=h1*h1+J*J;if(S1>=1)continue;let b1=Math.sqrt(1-S1),P1=H[2]+W*b1,x1=Z*P+w1;if(P1<=x[x1])continue;x[x1]=P1;let h0=Math.max(0,h1*Y1[0]-J*Y1[1]+b1*Y1[2]);e1[x1]=Math.min(1,.18+.82*h0+Math.pow(b1,24)*.2),m1[x1]=Math.max(0,Math.min(1,.55+.45*(P1+r)/(2*r))),c1[x1]=M}}}let K0=o.theme==="night",P0=O1.length-1,x0=[],d0=[],Q0=h.data,Q1=l0()!=="mono";for(let M=0;M<V;M++){let D="",H="",W=null,m="";for(let R=0;R<P;R++){let v=M*P+R,B=j0((R+.5-b0)/J0),j=G[v]<B*1.04&&B>.001;Q0[v*4+3]=o.seam==="dither"?j?0:255:Math.round((1-B)*255);let _=" ",X=null;if(x[v]>-1e8&&j){let i1=e1[v],Z=m1[v],J=K0?i1*Z:(.42+.58*(1-i1))*(.25+.75*Z)*1.1;J=Math.min(1,J)*(.45+.55*B),_=O1[Math.max(1,Math.min(P0,Math.round(J*P0)))],X=Q1?S0(e[c1[v]]):null}D+=_,Q1&&(X!==W&&(m&&(H+=W?`<span style="color:${W}">${m}</span>`:m),m="",W=X),m+=_)}Q1&&(H+=W?`<span style="color:${W}">${m}</span>`:m,x0.push(H)),d0.push(D)}K=d0,Q1?O.innerHTML=x0.join(`
+`):O.textContent=d0.join(`
+`);let t0=a.width/(P*q),n0=$*r1*t1*t0,tt=s1*q*t0,nt=L1*t1*t0,D1=M=>tt+(M[0]+a1)*n0,B1=M=>nt-(M[1]+i)*n0,$1=[];if(o.layout!=="ascii"){let M=new Array(e.length),D=new Array(e.length);for(let m=0;m<e.length;m++)M[m]=F(e[m].side),D[m]=F(e[m].nrm);let H=null,W=()=>{if(!H||H.path.length<2){H=null;return}let m=H.path,R=H.z/H.n,v=Math.max(0,Math.min(1,(R+r)/(2*r))),B=m[0],j=m[m.length-1],_=-(j[1]-B[1]),X=j[0]-B[0],i1=Math.hypot(_,X)||1;_/=i1,X/=i1,_*-Y1[0]+X*Y1[1]>0&&(_=-_,X=-X);let Z=2*c.cylR*n0,J=H.col;$1.push({z:R,cyl:m,w:Z,off:[_*Z*.2,X*Z*.2],c0:N(J,.3,v),c1:N(J,.62,v),c2:N(J,.95,v)}),H=null};for(let m=0;m<e.length-1;m++){let R=e[m],v=e[m+1];if(R.gap){W();continue}let B=u0[m],j=u0[m+1],_=(B[2]+j[2])/2,X=Math.max(0,Math.min(1,(_+r)/(2*r)));if(R.kind==="Hc"&&v.kind==="Hc"){H||(H={path:[[D1(B),B1(B)]],z:0,n:0,col:a0(R,"H")}),H.path.push([D1(j),B1(j)]),H.z+=_,H.n++;continue}if(W(),R.kind==="C"||R.kind==="Hc"||R.wOut===0){$1.push({z:_,line:[D1(B),B1(B),D1(j),B1(j)],w:2*c.coilR*n0,c:N(a0(R,"C"),.55,X)});continue}let i1=R.wOut,Z=v.res===R.res||v.kind===R.kind?v.wIn:.04,J=R.th,w1=v.kind===R.kind?v.th:R.th,h1=M[m],S1=M[m+1],b1=D[m],P1=D[m+1],x1=g(B,S(h1,i1)),h0=g(B,S(h1,-i1)),et=g(j,S(S1,-Z)),At=g(j,S(S1,Z)),R0=Q(g(b1,P1)),G0=a0(R,R.kind);if($1.push({z:_,q:[x1,h0,et,At],c:N(G0,Math.abs(R1(R0,Y1)),X)}),Math.abs(R0[2])<.9&&J>.02)for(let e0 of[1,-1]){let H0=g(B,S(h1,e0*i1)),Y0=g(j,S(S1,e0*Z)),ot=[g(H0,S(b1,J)),g(H0,S(b1,-J)),g(Y0,S(P1,-w1)),g(Y0,S(P1,w1))];$1.push({z:_+e0*.01*(h1[2]+S1[2]),q:ot,c:N(G0,Math.abs(R1(S(Q(g(h1,S1)),e0),Y1))*.7,X*.95)})}}W(),$1.sort((m,R)=>m.z-R.z)}s.setTransform(1,0,0,1,0,0),s.clearRect(0,0,a.width,a.height),s.lineJoin="round",s.lineCap="round";for(let M of $1)if(M.cyl){let D=(H,W)=>{s.beginPath(),s.moveTo(M.cyl[0][0]+H,M.cyl[0][1]+W);for(let m=1;m<M.cyl.length;m++)s.lineTo(M.cyl[m][0]+H,M.cyl[m][1]+W)};s.strokeStyle=M.c0,s.lineWidth=M.w,D(0,0),s.stroke(),s.strokeStyle=M.c1,s.lineWidth=M.w*.78,D(M.off[0]*.5,M.off[1]*.5),s.stroke(),s.strokeStyle=M.c2,s.lineWidth=M.w*.3,D(M.off[0]*1.6,M.off[1]*1.6),s.stroke()}else if(M.line)s.strokeStyle=M.c,s.lineWidth=M.w,s.beginPath(),s.moveTo(M.line[0],M.line[1]),s.lineTo(M.line[2],M.line[3]),s.stroke();else{s.fillStyle=M.c,s.strokeStyle=M.c,s.lineWidth=.8*t0,s.beginPath(),s.moveTo(D1(M.q[0]),B1(M.q[0]));for(let D=1;D<4;D++)s.lineTo(D1(M.q[D]),B1(M.q[D]));s.closePath(),s.fill(),s.stroke()}I.putImageData(h,0,0),s.globalCompositeOperation="destination-in",s.imageSmoothingEnabled=o.seam==="soft",s.drawImage(u,0,0,a.width,a.height),s.globalCompositeOperation="source-over"}let U1=0,M0=performance.now(),T0=!0,q1=!1,j1=!1;function y0(e){if(U1=0,j1)return;let r=Math.min(.05,(e-M0)/1e3);M0=e,q1||(f1+=o.spin*r*1.6),X0(),T0&&(U1=requestAnimationFrame(y0))}let d1=()=>{!U1&&T0&&!j1&&(M0=performance.now(),U1=requestAnimationFrame(y0))},X1=typeof IntersectionObserver=="function"?new IntersectionObserver(e=>{T0=e.some(r=>r.isIntersecting),d1()}):null;X1&&X1.observe(T);let Z1=typeof ResizeObserver=="function"?new ResizeObserver(()=>{u1(),d1()}):null;Z1?Z1.observe(T):window.addEventListener("resize",u1),document.fonts&&document.fonts.ready&&document.fonts.ready.then(()=>{j1||u1()});let o1=new Map,E1=null,f0=!1,J1=0,K1=0;T.addEventListener("contextmenu",e=>{o.interactive&&e.preventDefault()}),T.addEventListener("pointerdown",e=>{if(o.interactive)if(T.setPointerCapture(e.pointerId),o1.set(e.pointerId,[e.clientX,e.clientY]),o1.size===2){let[r,p]=[...o1.values()];E1={d:Math.hypot(r[0]-p[0],r[1]-p[1]),m:[(r[0]+p[0])/2,(r[1]+p[1])/2]}}else q1=!0,f0=e.shiftKey||e.altKey||e.button===2,J1=e.clientX,K1=e.clientY,T.style.cursor="grabbing"}),T.addEventListener("pointermove",e=>{if(!o1.has(e.pointerId))return;if(o1.set(e.pointerId,[e.clientX,e.clientY]),o1.size===2&&E1){let[w,Y]=[...o1.values()],k=Math.hypot(w[0]-Y[0],w[1]-Y[1]),F=[(w[0]+Y[0])/2,(w[1]+Y[1])/2];g0(F[0]-E1.m[0],F[1]-E1.m[1]),c0(k/Math.max(1,E1.d),...E0(F[0],F[1])),E1={d:k,m:F};return}if(!q1)return;let r=e.clientX-J1,p=e.clientY-K1;J1=e.clientX,K1=e.clientY,f0?g0(r,p):(f1+=r*.008,l1=Math.max(-1.5,Math.min(1.5,l1+p*.008)))});let w0=e=>{if(o1.delete(e.pointerId),o1.size<2&&(E1=null),o1.size===0)q1=!1,T.style.cursor=o.interactive?"grab":"default";else if(o1.size===1){let[r]=o1.values();J1=r[0],K1=r[1],f0=!1}};T.addEventListener("pointerup",w0),T.addEventListener("pointercancel",w0),T.addEventListener("wheel",e=>{if(!o.interactive)return;e.preventDefault();let r=e.deltaMode===1?e.deltaY*16:e.deltaY;c0(Math.exp(-r*.001),...E0(e.clientX,e.clientY))},{passive:!1}),T.addEventListener("dblclick",()=>{o.interactive&&O0()});let v1=0,y1=null;function N1(e,r={}){return E=p0(e,c),U=e,z={title:r.title||e.title||"Structure",sub:r.sub||"",residues:E.N,meanPlddt:E.hasPlddt?E.meanP:null,hasPlddt:E.hasPlddt,ssFromGeometry:E.ssAuto,chain:e.chain,entryUrl:r.entryUrl||null,acc:r.acc||null},T.setAttribute("aria-label",`${z.title}: rotating protein structure drawn as text and ribbon`),O0(!0),d("load",z),d1(),z}let C1={get options(){return{...o,shape:{...c}}},get info(){return z},get zoom(){return n1},get element(){return T},set(e={}){let r="detail"in e&&e.detail!==o.detail;return Object.assign(o,e),e.shape&&C1.setShape(e.shape),A1(),r&&u1(),d1(),C1},setShape(e={}){return c={...c,...e},U&&(E=p0(U,c)),d1(),C1},resetShape(){return C1.setShape(G1)},setStructure:N1,loadText(e,r){return v1++,N1(_1(e),r)},async loadFile(e){let r=++v1,{parsed:p,afId:w}=await I0(e);return r!==v1?null:N1(p,{title:w?w.acc:e.name.replace(/\.(pdb|cif|mmcif|ent)(\.gz)?$/i,""),sub:[w?`AF-${w.acc}-F${w.frag}`:p.title||"local file",`chain ${p.chain}`].join(" \xB7 ")})},async loadAccession(e){let r=++v1;y1&&y1.abort(),y1=typeof AbortController=="function"?new AbortController:null;let{parsed:p,meta:w,entryUrl:Y,acc:k}=await v0(e,{signal:y1&&y1.signal});return r!==v1?null:N1(p,{...D0(w,k),entryUrl:Y,acc:k})},loadDefault(){return v1++,N1(m0(B0),{title:"KRAS G12D",sub:"PDB 6GJ8 \xB7 chain A"})},zoomBy(e){return c0(e),d1(),C1},setRotation(e,r=l1){return f1=e,l1=Math.max(-1.5,Math.min(1.5,r)),d1(),C1},get rotation(){return{y:f1,x:l1}},resetView(){return O0(),d1(),C1},text(){return K.join(`
+`)},snapshot({scale:e=2,pad:r=40}={}){let p=P*q,w=V*t1,Y=document.createElement("canvas");Y.width=(p+r*2)*e,Y.height=(w+r*2)*e;let k=Y.getContext("2d");k.scale(e,e),k.fillStyle=b.css.bg,k.fillRect(0,0,p+r*2,w+r*2),k.drawImage(a,r,r,p,w);let F=getComputedStyle(O);k.font=`${F.fontWeight} ${F.fontSize} ${F.fontFamily}`,k.textBaseline="top";for(let $=0;$<V;$++)for(let s1=0;s1<P;s1++){let L1=K[$]&&K[$][s1];!L1||L1===" "||(k.fillStyle=E&&S0(E.pts[c1[$*P+s1]])||b.css.ink,k.fillText(L1,r+s1*q,r+$*t1))}return Y.toDataURL("image/png")},palette(){return{...b.css}},on(e,r){return(L[e]=L[e]||[]).push(r),()=>{L[e]=L[e].filter(p=>p!==r)}},destroy(){j1=!0,U1&&cancelAnimationFrame(U1),X1&&X1.disconnect(),Z1?Z1.disconnect():window.removeEventListener("resize",u1),y1&&y1.abort(),T.remove()}};return A1(),u1(),d1(),C1}var f=t=>document.getElementById(t),p1=t=>String(t).replace(/[&<>"]/g,n=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"})[n]),_0=["P42212","P00698","P69905","P68871","P04637","P01116","P00533","P07900","P02768","P05067","P38398","P0DP23","P62988","P00760","P01308","P10636","Q9BYF1","P35222","P61626"],y=N0(f("stage"));window.asciiFold=y;function I1(t,n=!1){f("status").innerHTML=t,f("status").classList.toggle("err",n)}y.on("load",t=>{f("title").textContent=t.title;let n=[t.sub,`${t.residues} residues`];t.hasPlddt&&n.push(`mean pLDDT ${t.meanPlddt.toFixed(1)}`),t.ssFromGeometry&&n.push("SS from C\u03B1 geometry"),f("sub").textContent=n.filter(Boolean).join(" \xB7 "),f("plddtBtn").disabled=!t.hasPlddt,!t.hasPlddt&&y.options.colour==="plddt"&&i0("colour","ss"),f("credit").innerHTML=t.entryUrl?`Structure: <a href="${t.entryUrl}" target="_blank" rel="noopener">AlphaFold DB</a> (CC BY 4.0)`:t.hasPlddt?"Structure: AlphaFold DB (CC BY 4.0)":""});y.on("zoom",t=>f("zval").textContent=t.toFixed(1)+"\xD7");async function r0(t){I1(`Fetching ${p1(t.trim().toUpperCase())} from AlphaFold DB\u2026`);try{let n=await y.loadAccession(t);if(!n)return;f("acc").value=n.acc,I1(`Loaded <a href="${n.entryUrl}" target="_blank" rel="noopener">AF-${p1(n.acc)}</a> from AlphaFold DB.`);try{history.replaceState(null,"","#"+n.acc)}catch{}}catch(n){if(n.name==="AbortError")return;n.kind==="network"?I1(`${p1(n.message)} Download the model from <a href="https://alphafold.ebi.ac.uk/entry/${p1(n.acc)}" target="_blank" rel="noopener">the ${p1(n.acc)} entry</a> and drop the .pdb or .cif file here.`,!0):I1(p1(n.message),!0)}}async function V0(t){try{await y.loadFile(t)&&I1(`Loaded ${p1(t.name)}.`)}catch(n){I1(`Couldn't read ${p1(t.name)}: ${p1(n.message)}`,!0)}}f("form").onsubmit=t=>{t.preventDefault(),r0(f("acc").value)};f("rand").onclick=()=>{let t;do t=_0[Math.floor(Math.random()*_0.length)];while(t===f("acc").value);f("acc").value=t,r0(t)};f("openBtn").onclick=()=>f("file").click();f("file").onchange=t=>{let n=t.target.files[0];n&&V0(n),t.target.value=""};var s0=0;window.addEventListener("dragenter",t=>{t.preventDefault(),s0++,f("stage").classList.add("drop")});window.addEventListener("dragleave",()=>{--s0<=0&&(s0=0,f("stage").classList.remove("drop"))});window.addEventListener("dragover",t=>t.preventDefault());window.addEventListener("drop",t=>{t.preventDefault(),s0=0,f("stage").classList.remove("drop");let n=t.dataTransfer&&t.dataTransfer.files[0];n&&V0(n)});var W0={};function i0(t,n){f(t).querySelectorAll("button").forEach(l=>l.classList.toggle("on",l.dataset.v===n)),W0[t](n)}function g1(t,n){W0[t]=n,f(t).addEventListener("click",l=>{let o=l.target.closest("button");!o||o.disabled||i0(t,o.dataset.v)})}function L0(){let t=y.palette(),n=y.options.colour,l=n==="ss"?[["Helix",t.H],["Strand",t.E],["Coil",t.C]]:n==="plddt"?[[">90",t.P[0]],["70\u201390",t.P[1]],["50\u201370",t.P[2]],["<50",t.P[3]]]:[];f("legend").innerHTML=l.map(([o,c])=>`<span style="--sw:${c}">${o}</span>`).join("")}g1("layout",t=>y.set({layout:t}));g1("seam",t=>y.set({seam:t}));g1("colour",t=>{y.set({colour:t}),L0()});g1("theme",t=>{document.body.classList.toggle("night",t==="night"),y.set({theme:t}),L0()});g1("glyphs",t=>y.set({glyphs:t}));g1("detail",t=>y.set({detail:t}));f("speed").oninput=t=>y.set({spin:t.target.value/100});f("f0").oninput=t=>y.set({blendFrom:t.target.value/100});f("f1").oninput=t=>y.set({blendTo:t.target.value/100});f("zin").onclick=()=>y.zoomBy(1.25);f("zout").onclick=()=>y.zoomBy(.8);f("zfit").onclick=()=>y.resetView();window.addEventListener("keydown",t=>{t.target.tagName!=="INPUT"&&(t.key==="+"||t.key==="="?y.zoomBy(1.25):t.key==="-"||t.key==="_"?y.zoomBy(.8):t.key==="0"&&y.resetView())});var V1=null;function F1(t){V1={...V1||{},...t},requestAnimationFrame(()=>{V1&&(y.setShape(V1),V1=null)})}var dt=()=>y.options.shape.hStyle==="cylinder",ht={hW:t=>F1(dt()?{cylR:t/100*1.7}:{hW:t/100}),hT:t=>F1({hT:t/100}),flat:t=>F1({flat:t/100}),sW:t=>F1({sW:t/100}),sT:t=>F1({sT:t/100}),head:t=>F1({head:t/100}),coilR:t=>F1({coilR:t/100})};for(let[t,n]of Object.entries(ht))f(t).addEventListener("input",l=>n(+l.target.value));function q0(){let t=y.options.shape,n=t.hStyle==="cylinder";f("hW").value=Math.round((n?t.cylR/1.7:t.hW)*100),f("hTwrap").classList.toggle("off",n),f("headWrap").classList.toggle("off",!t.arrows)}g1("hStyle",t=>{y.setShape({hStyle:t}),q0()});g1("arrows",t=>{y.setShape({arrows:t==="on"}),q0()});f("shapeReset").onclick=()=>{y.resetShape();let t=G1;for(let[n,l]of Object.entries({hT:t.hT,flat:t.flat,sW:t.sW,sT:t.sT,head:t.head,coilR:t.coilR}))f(n).value=Math.round(l*100);i0("hStyle","ribbon"),i0("arrows","on")};f("shapeBtn").onclick=()=>{let t=f("shape").classList.toggle("closed");f("shapeBtn").textContent=t?"Shape \u25B8":"Shape \u25BE",f("shapeBtn").setAttribute("aria-expanded",String(!t))};f("copy").onclick=async()=>{try{await navigator.clipboard.writeText(y.text()),f("copy").textContent="Copied"}catch{f("copy").textContent="Copy blocked"}setTimeout(()=>f("copy").textContent="Copy text",1400)};f("png").onclick=()=>{f("snap").querySelector("img").src=y.snapshot(),f("snap").hidden=!1};f("snap").onclick=t=>{t.target===f("snap")&&(f("snap").hidden=!0)};L0();y.loadDefault();I1("Enter a UniProt accession, hit Random, or drop an AlphaFold .pdb / .cif file.");var o0="";try{o0=decodeURIComponent(location.hash.slice(1))}catch{}o0&&(f("acc").value=o0.toUpperCase(),r0(o0));window.addEventListener("hashchange",()=>{let t="";try{t=decodeURIComponent(location.hash.slice(1))}catch{}t&&t.toUpperCase()!==(y.info&&y.info.acc)&&(f("acc").value=t.toUpperCase(),r0(t))});})();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASCII Fold — embedding examples</title>
+<style>
+  body { margin: 0; padding: 32px; font: 15px/1.5 system-ui, sans-serif; background: #F2ECDF; color: #1B1A18; }
+  h1 { font-size: 20px; letter-spacing: .12em; text-transform: uppercase; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; }
+  figure { margin: 0; }
+  figcaption { font-size: 13px; color: #6b665d; margin-top: 6px; }
+  code { font: 12px ui-monospace, Menlo, monospace; background: #e8e1d2; padding: 1px 4px; }
+  ascii-fold { border: 2px solid #1B1A18; }
+</style>
+<!-- From a checkout: ../dist/ascii-fold.js. From a CDN: https://cdn.jsdelivr.net/gh/mitsenkov/ascii-fold@v1.0.0/dist/ascii-fold.js -->
+<script type="module" src="../dist/ascii-fold.js"></script>
+</head>
+<body>
+<h1>Embedding <code>&lt;ascii-fold&gt;</code></h1>
+<div class="grid">
+  <figure>
+    <ascii-fold style="height: 380px"></ascii-fold>
+    <figcaption>Default: <code>&lt;ascii-fold&gt;</code> (KRAS G12D, PDB 6GJ8, bundled)</figcaption>
+  </figure>
+  <figure>
+    <ascii-fold accession="P04637" theme="night" colour="plddt" style="height: 380px"></ascii-fold>
+    <figcaption><code>accession="P04637" theme="night" colour="plddt"</code> — p53 from AlphaFold DB</figcaption>
+  </figure>
+  <figure>
+    <ascii-fold accession="P42212" layout="ribbon" helix-style="cylinder" spin="0.2" style="height: 380px"></ascii-fold>
+    <figcaption><code>layout="ribbon" helix-style="cylinder"</code> — GFP</figcaption>
+  </figure>
+  <figure>
+    <ascii-fold layout="ascii" glyphs="geo" detail="fine" interactive="false" transparent style="height: 380px"></ascii-fold>
+    <figcaption><code>layout="ascii" glyphs="geo" interactive="false" transparent</code></figcaption>
+  </figure>
+</div>
+</body>
+</html>

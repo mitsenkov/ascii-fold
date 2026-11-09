@@ -1,0 +1,41 @@
+{
+  "name": "ascii-fold",
+  "version": "1.0.0",
+  "description": "Spinning protein structures drawn as ASCII text dissolving into a cartoon ribbon. Loads models straight from AlphaFold DB.",
+  "type": "module",
+  "main": "dist/ascii-fold.js",
+  "module": "dist/ascii-fold.js",
+  "exports": {
+    ".": "./dist/ascii-fold.js",
+    "./src/*": "./src/*"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "dev": "npx --yes serve -l 5173 .",
+    "build": "npm run build:esm && npm run build:iife && npm run build:standalone",
+    "build:esm": "esbuild src/index.js --bundle --minify --format=esm --target=es2020 --outfile=dist/ascii-fold.js",
+    "build:iife": "esbuild src/index.js --bundle --minify --format=iife --global-name=AsciiFold --target=es2020 --outfile=dist/ascii-fold.iife.js",
+    "build:standalone": "node scripts/build-standalone.mjs"
+  },
+  "keywords": [
+    "protein",
+    "structure",
+    "alphafold",
+    "ascii",
+    "visualization",
+    "web-component",
+    "bioinformatics"
+  ],
+  "author": "Maxim Tsenkov",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mitsenkov/ascii-fold.git"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}

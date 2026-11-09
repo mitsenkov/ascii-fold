@@ -1,0 +1,116 @@
+# ASCII Fold
+
+Spinning protein structures drawn as ASCII text that dissolves into a cartoon ribbon. Type a UniProt accession and the model loads straight from [AlphaFold DB](https://alphafold.ebi.ac.uk) in your browser. There's no server and no build step to run it.
+
+<p align="center"><img src="docs/demo.gif" alt="KRAS G12D rotating: ASCII characters on the left dissolve into a red, blue and gold cartoon ribbon on the right" width="560"></p>
+
+- **Text → ribbon blend.** One projection drives both a character grid and a canvas cartoon, so they always line up. The handover is a fixed dither, like a halftone, or a soft cross-fade.
+- **Any AlphaFold DB model.** Load by accession, by URL hash (`#P04637`), or by dropping a `.pdb` / `.cif` file on the page. Colour by secondary structure, by pLDDT, or in a single ink colour.
+- **Shape controls.** Flatten strands and size their arrowheads. Draw helices as twisted ribbons or as cylinders. Set thickness and width for helices, strands and loops.
+- **Zoom and detail.** Zoom adds characters instead of enlarging them. The grid fills the window, and the Detail setting picks the number of text rows.
+- **Embeddable.** `<ascii-fold accession="P01116">` works on any page.
+
+## Run it
+
+```bash
+git clone https://github.com/mitsenkov/ascii-fold.git
+cd ascii-fold
+npx serve .            # or: python3 -m http.server
+```
+
+Then open the printed URL. ES modules need a web server, so double-clicking `index.html` won't work. For a single file you can open from disk, use `dist/ascii-fold-standalone.html`.
+
+## Deploy your own
+
+The site is static, so any static host works.
+
+**GitHub Pages:** fork the repo, then go to **Settings → Pages → Source → GitHub Actions**. The workflow in `.github/workflows/pages.yml` builds and publishes on every push to `main`. Your copy appears at `https://<you>.github.io/ascii-fold/`.
+
+**Netlify / Vercel / Cloudflare Pages:** connect the repo, set the build command to `npm run build` and the output directory to `.` (repo root).
+
+**Anywhere else:** upload `dist/ascii-fold-standalone.html` and rename it `index.html` if you like.
+
+AlphaFold DB sends CORS headers, so visitors' browsers fetch models directly and you don't need a proxy.
+
+## Embed it
+
+```html
+<script type="module" src="https://cdn.jsdelivr.net/gh/mitsenkov/ascii-fold@v1.0.0/dist/ascii-fold.js"></script>
+
+<ascii-fold accession="P04637" theme="night" colour="plddt" style="height: 420px"></ascii-fold>
+```
+
+| Attribute | Values | Default |
+|---|---|---|
+| `accession` | UniProt accession, fetched from AlphaFold DB | bundled KRAS (PDB 6GJ8) |
+| `src` | URL of a `.pdb` / `.cif` file (must be CORS-readable) | |
+| `theme` | `paper` · `night` | `paper` |
+| `colour` | `ss` · `plddt` · `mono` | `ss` |
+| `layout` | `lr` (text→ribbon) · `rl` · `ascii` · `ribbon` | `lr` |
+| `seam` | `dither` · `soft` | `dither` |
+| `glyphs` | `classic` · `blocks` · `geo`, or your own light→dark ramp | `classic` |
+| `detail` | `coarse` · `medium` · `fine` · `ultra`, or a row count | `medium` |
+| `spin` | rotation speed, 0–1 | `0.35` (0 with reduced motion) |
+| `blend-from`, `blend-to` | where the blend starts and ends, 0–1 | `0.25`, `0.8` |
+| `helix-style` | `ribbon` · `cylinder` | `ribbon` |
+| `interactive` | `false` disables drag and zoom | |
+| `transparent` | no background fill | |
+| `no-credit` | hides the AlphaFold DB credit line (credit it elsewhere) | |
+
+Size the element with CSS; it defaults to 360 px tall. It fires `fold-load` and `fold-error` events and exposes the engine as `element.view`. `examples/embed.html` shows a few variants.
+
+For your homepage, `<iframe src="https://<you>.github.io/ascii-fold/#P69905">` embeds the full app.
+
+## Use the engine directly
+
+```js
+import { createAsciiFold } from "./src/index.js";   // or the dist bundle
+
+const view = createAsciiFold(document.querySelector("#box"), { theme: "night", colour: "plddt" });
+await view.loadAccession("P42212");
+view.setShape({ hStyle: "cylinder", flat: 1 });
+view.setRotation(1.2, -0.3);
+const png = view.snapshot();       // data URL of the current frame
+const txt = view.text();           // current frame as plain text
+```
+
+Other methods: `set(options)`, `loadFile(file)`, `loadText(text)`, `loadDefault()`, `zoomBy(f)`, `resetView()`, `palette()`, `on("load" | "zoom", fn)` and `destroy()`. In the app, the view is available as `window.asciiFold`.
+
+## How it works
+
+1. **Parse.** Read Cα and carbonyl O of the first chain from PDB or mmCIF. `src/parse.js` does this with no dependencies.
+2. **Secondary structure.** Use HELIX/SHEET records when present. Otherwise assign it from Cα distances alone (`src/ss.js`, P-SEA-like). This agreed with deposited assignments on about 80–86% of residues in our checks, which is fine for drawing but not for analysis.
+3. **Geometry.** Draw a Catmull-Rom spline through Cα. Orient the ribbon using the backbone C=O directions. Smooth the strand pleats on request, and fit helix axes for cylinders (`src/geometry.js`).
+4. **Text.** Splat spheres along the spline into a z-buffered character grid, shade them with a simple light and depth cue, and map brightness to a glyph ramp.
+5. **Ribbon.** Draw the cartoon with a painter's algorithm on a 2D canvas, in the same projection as the text.
+6. **Blend.** A fixed per-cell random mask hands each character cell to either the text or the ribbon according to its horizontal position.
+
+The `scripts/extract_ca_o.py` script turns any PDB file into the compact Cα+O format used for the bundled structure.
+
+## Develop
+
+```bash
+npm install
+npm run dev        # static server on :5173
+npm run build      # dist/ascii-fold.js (ESM), dist/ascii-fold.iife.js (global AsciiFold), dist/ascii-fold-standalone.html
+```
+
+```
+src/
+  engine.js               createAsciiFold(): rendering, interaction, public API
+  geometry.js             spline, ribbon frames, shape parameters
+  parse.js · ss.js        PDB/mmCIF reader, Cα-only secondary structure
+  afdb.js                 AlphaFold DB fetch + accession handling
+  ascii-fold-element.js   <ascii-fold> web component
+  app.js                  the full-page app (index.html)
+```
+
+## Data and credits
+
+- Models come from the **AlphaFold Protein Structure Database** (EMBL-EBI and Google DeepMind). AlphaFold data is © 2021 DeepMind Technologies Limited, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), and use of AlphaFold DB is subject to the [EMBL-EBI Terms of Use](https://www.ebi.ac.uk/about/terms-of-use/). The app and the component show a credit line; please keep it, or credit AlphaFold DB elsewhere on your page. If you use the predictions in your work, cite Jumper et al., *Nature* (2021) and the current database paper listed on the [AlphaFold DB homepage](https://alphafold.ebi.ac.uk).
+- The bundled default structure is **PDB 6GJ8** (KRAS G12D), from the [Protein Data Bank](https://www.rcsb.org/structure/6GJ8) (CC0).
+- The font is **JetBrains Mono**, loaded from Google Fonts under the SIL Open Font License.
+
+## License
+
+The code is [MIT](LICENSE). Structure data keeps its own licence (see above).
