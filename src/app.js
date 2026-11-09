@@ -146,6 +146,55 @@ $("copy").onclick = async () => {
 $("png").onclick = () => { $("snap").querySelector("img").src = view.snapshot(); $("snap").hidden = false; };
 $("snap").onclick = e => { if (e.target === $("snap")) $("snap").hidden = true; };
 
+// ---------- share ----------
+function shareUrl() {
+  const base = location.href.split("#")[0];
+  return view.info && view.info.acc ? `${base}#${view.info.acc}` : base;
+}
+$("share").onclick = async () => {
+  const url = shareUrl(), title = `${view.info ? view.info.title : "Protein"} — ASCII Fold`;
+  try {
+    if (navigator.share && matchMedia("(pointer: coarse)").matches) { await navigator.share({ title, url }); return; }
+    await navigator.clipboard.writeText(url);
+    $("share").textContent = "Link copied";
+  } catch (e) {
+    if (e.name === "AbortError") return;
+    status(`Share link: <a href="${esc(url)}">${esc(url)}</a>`);
+  }
+  setTimeout(() => $("share").textContent = "Share", 1600);
+};
+
+// ---------- GIF export ----------
+const gif = { frames: 60, width: 720, url: null, ctrl: null };
+seg("gifTurn", v => gif.frames = +v);
+seg("gifSize", v => gif.width = +v);
+function gifReset() {
+  if (gif.url) URL.revokeObjectURL(gif.url);
+  gif.url = null; $("gifOut").innerHTML = ""; $("gifSave").hidden = true; $("gifBar").style.width = "0";
+}
+$("gifBtn").onclick = () => { gifReset(); $("gifGo").textContent = "Record"; $("gifDlg").hidden = false; $("gifGo").focus(); };
+function gifClose() { if (gif.ctrl) gif.ctrl.abort(); $("gifDlg").hidden = true; }
+$("gifClose").onclick = gifClose;
+$("gifDlg").onclick = e => { if (e.target === $("gifDlg")) gifClose(); };
+window.addEventListener("keydown", e => { if (e.key === "Escape" && !$("gifDlg").hidden) gifClose(); });
+$("gifGo").onclick = async () => {
+  gifReset();
+  gif.ctrl = typeof AbortController === "function" ? new AbortController() : null;
+  $("gifGo").disabled = true; $("gifGo").textContent = "Recording…";
+  try {
+    const blob = await view.recordGif({ frames: gif.frames, delay: 50, width: gif.width,
+      signal: gif.ctrl && gif.ctrl.signal, onProgress: f => $("gifBar").style.width = (f * 100).toFixed(1) + "%" });
+    gif.url = URL.createObjectURL(blob);
+    const name = `ascii-fold-${(view.info && (view.info.acc || view.info.title) || "protein").replace(/[^\w-]+/g, "_")}.gif`;
+    $("gifSave").href = gif.url; $("gifSave").download = name; $("gifSave").hidden = false;
+    $("gifOut").innerHTML = `<img alt="Recorded GIF of the rotating structure" src="${gif.url}"><p>${(blob.size / 1048576).toFixed(1)} MB · ${gif.frames} frames · right-click the image to save if Download is blocked</p>`;
+  } catch (e) {
+    if (e.name !== "AbortError") $("gifOut").innerHTML = `<p>Couldn't record: ${esc(e.message)}</p>`;
+  } finally {
+    gif.ctrl = null; $("gifGo").disabled = false; $("gifGo").textContent = "Record again";
+  }
+};
+
 // ---------- start ----------
 renderLegend();
 view.loadDefault();

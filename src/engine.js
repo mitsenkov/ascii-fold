@@ -3,6 +3,7 @@ import { buildGeometry, SHAPE_DEFAULT } from "./geometry.js";
 import { parsePDB, parseStructure, readStructureFile } from "./parse.js";
 import { fetchAFDB, describeAFDB } from "./afdb.js";
 import KRAS_6GJ8 from "./data/kras-6gj8.js";
+import { GIFEncoder, quantize, applyPalette } from "./vendor/gifenc.js";
 
 // ---------------------------------------------------------------------------------------
 // createAsciiFold(container, options) → view
@@ -133,13 +134,15 @@ export function createAsciiFold(container, options = {}) {
   const asciiAmount = u => o.layout === "ascii" ? 1 : o.layout === "ribbon" ? 0 : 1 - smooth(o.blendFrom, o.blendTo, o.layout === "lr" ? u : 1 - u);
 
   // ---------- frame ----------
-  function render() {
+  let lastBox = null;   // protein extent in cells, for cropped exports
+  function render(dom = true) {
     if (!G || !HASH) return;
     const { pts, R } = G;
     const cy = Math.cos(rotY), sy = Math.sin(rotY), cx = Math.cos(rotX), sx = Math.sin(rotX);
     const rot = v => { const x = v[0] * cy + v[2] * sy, z0 = -v[0] * sy + v[2] * cy; return [x, v[1] * cx - z0 * sx, v[1] * sx + z0 * cx]; };
     const S = baseScale() * zoom, ox = COLS / 2, oy = ROWS / 2;
     const left = Math.max(0, ox + (panX - R) * S), right = Math.min(COLS, ox + (panX + R) * S), span = Math.max(1, right - left);
+    lastBox = { x0: left, x1: right, y0: Math.max(0, oy - (panY + R) * S * aspect), y1: Math.min(ROWS, oy - (panY - R) * S * aspect) };
 
     // text: splat spheres along the spline into a z-buffered character grid
     zbuf.fill(-1e9);
@@ -192,7 +195,7 @@ export function createAsciiFold(container, options = {}) {
       grid.push(line);
     }
     lastGrid = grid;
-    if (useCol) out.innerHTML = html.join("\n"); else out.textContent = grid.join("\n");
+    if (dom) { if (useCol) out.innerHTML = html.join("\n"); else out.textContent = grid.join("\n"); }
 
     // ribbon: painter's algorithm in the same projection
     const dpr = rib.width / (COLS * cw);
@@ -272,11 +275,12 @@ export function createAsciiFold(container, options = {}) {
   }
 
   // ---------- animation (paused while off-screen) ----------
-  let raf = 0, prev = performance.now(), visible = true, dragging = false, destroyed = false;
+  let raf = 0, prev = performance.now(), visible = true, dragging = false, destroyed = false, capturing = false;
   function loop(t) {
     raf = 0;
     if (destroyed) return;
     const dt = Math.min(0.05, (t - prev) / 1000); prev = t;
+    if (capturing) { raf = 0; return; }
     if (!dragging) rotY += o.spin * dt * 1.6;
     render();
     if (visible) raf = requestAnimationFrame(loop);
@@ -333,6 +337,33 @@ export function createAsciiFold(container, options = {}) {
     zoomAt(Math.exp(-dy * 0.001), ...cellAt(e.clientX, e.clientY));
   }, { passive: false });
   root.addEventListener("dblclick", () => { if (o.interactive) resetView(); });
+
+  // ---------- export helpers ----------
+  function cropBox(crop) {
+    let x0 = 0, x1 = COLS, y0 = 0, y1 = ROWS;
+    if (crop && lastBox) {
+      x0 = Math.max(0, Math.floor(lastBox.x0) - 1); x1 = Math.min(COLS, Math.ceil(lastBox.x1) + 1);
+      y0 = Math.max(0, Math.floor(lastBox.y0) - 1); y1 = Math.min(ROWS, Math.ceil(lastBox.y1) + 1);
+    }
+    return { i0: x0, i1: x1, j0: y0, j1: y1, w: (x1 - x0) * cw, h: (y1 - y0) * lh };
+  }
+  function composeFrame(ctx, box, scale, pad) {
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+    ctx.fillStyle = PAL.css.bg; ctx.fillRect(0, 0, box.w + pad * 2, box.h + pad * 2);
+    const dpr = rib.width / (COLS * cw);
+    ctx.drawImage(rib, box.i0 * cw * dpr, box.j0 * lh * dpr, box.w * dpr, box.h * dpr, pad, pad, box.w, box.h);
+    const cs = getComputedStyle(out);
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`; ctx.textBaseline = "top";
+    for (let j = box.j0; j < box.j1; j++) {
+      const line = lastGrid[j]; if (!line) continue;
+      for (let i = box.i0; i < box.i1; i++) {
+        const ch = line[i]; if (!ch || ch === " ") continue;
+        ctx.fillStyle = (G && textColour(G.pts[ibuf[j * COLS + i]])) || PAL.css.ink;
+        ctx.fillText(ch, pad + (i - box.i0) * cw, pad + (j - box.j0) * lh);
+      }
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
 
   // ---------- public API ----------
   let loadToken = 0, aborter = null;
@@ -399,21 +430,47 @@ export function createAsciiFold(container, options = {}) {
     resetView() { resetView(); kick(); return api; },
     /** Current frame as plain text. */
     text() { return lastGrid.join("\n"); },
-    /** Current frame (ribbon + text) as a PNG data URL. */
-    snapshot({ scale = 2, pad = 40 } = {}) {
-      const W = COLS * cw, H = ROWS * lh, c = document.createElement("canvas");
-      c.width = (W + pad * 2) * scale; c.height = (H + pad * 2) * scale;
-      const ctx = c.getContext("2d"); ctx.scale(scale, scale);
-      ctx.fillStyle = PAL.css.bg; ctx.fillRect(0, 0, W + pad * 2, H + pad * 2);
-      ctx.drawImage(rib, pad, pad, W, H);
-      const cs = getComputedStyle(out);
-      ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`; ctx.textBaseline = "top";
-      for (let j = 0; j < ROWS; j++) for (let i = 0; i < COLS; i++) {
-        const ch = lastGrid[j] && lastGrid[j][i]; if (!ch || ch === " ") continue;
-        ctx.fillStyle = (G && textColour(G.pts[ibuf[j * COLS + i]])) || PAL.css.ink;
-        ctx.fillText(ch, pad + i * cw, pad + j * lh);
-      }
+    /** Current frame (ribbon + text) as a PNG data URL. crop: trim to the protein. */
+    snapshot({ scale = 2, pad = 40, crop = true } = {}) {
+      const box = cropBox(crop), c = document.createElement("canvas");
+      c.width = Math.round((box.w + pad * 2) * scale); c.height = Math.round((box.h + pad * 2) * scale);
+      composeFrame(c.getContext("2d"), box, scale, pad);
       return c.toDataURL("image/png");
+    },
+    /**
+     * Record one full turn as an animated GIF. Each frame is rendered at an exact angle,
+     * so the loop is seamless. Resolves to a Blob (image/gif).
+     *   frames: frames per turn · delay: ms per frame · width: output px · onProgress(0..1) · signal: AbortSignal
+     */
+    async recordGif({ frames = 60, delay = 50, width = 720, pad = 24, crop = true, onProgress, signal } = {}) {
+      if (!G) throw new Error("Nothing loaded");
+      if (capturing) throw new Error("Already recording");
+      capturing = true;
+      const y0 = rotY, x0 = rotX, tick = () => new Promise(r => setTimeout(r, 0));
+      try {
+        render(false);
+        const box = cropBox(crop), scale = width / (box.w + pad * 2);
+        const W = Math.round(width), H = Math.round((box.h + pad * 2) * scale);
+        const c = document.createElement("canvas"); c.width = W; c.height = H;
+        const ctx = c.getContext("2d", { willReadFrequently: true });
+        const frameAt = i => { rotY = y0 + (2 * Math.PI * i) / frames; rotX = x0; render(true); composeFrame(ctx, box, scale, pad); return ctx.getImageData(0, 0, W, H).data; };
+        // one shared palette from a few spread-out frames keeps colours from flickering
+        const picks = [0, 0.25, 0.5, 0.75].map(f => Math.floor(f * frames));
+        const sample = new Uint8ClampedArray(W * H * 4 * picks.length);
+        picks.forEach((i, k) => sample.set(frameAt(i), k * W * H * 4));
+        const palette = quantize(sample, 256);
+        const gif = GIFEncoder();
+        for (let i = 0; i < frames; i++) {
+          if (signal && signal.aborted) throw new DOMException("Recording cancelled", "AbortError");
+          gif.writeFrame(applyPalette(frameAt(i), palette), W, H, { palette, delay, repeat: 0 });
+          if (onProgress) onProgress((i + 1) / frames);
+          await tick();
+        }
+        gif.finish();
+        return new Blob([gif.bytes()], { type: "image/gif" });
+      } finally {
+        rotY = y0; rotX = x0; capturing = false; render(); kick();
+      }
     },
     palette() { return { ...PAL.css }; },
     on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); return () => { listeners[ev] = listeners[ev].filter(f => f !== fn); }; },

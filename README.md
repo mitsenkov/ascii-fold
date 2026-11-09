@@ -8,6 +8,7 @@ Spinning protein structures drawn as ASCII text that dissolves into a cartoon ri
 - **Any AlphaFold DB model.** Load by accession, by URL hash (`#P04637`), or by dropping a `.pdb` / `.cif` file on the page. Colour by secondary structure, by pLDDT, or in a single ink colour.
 - **Shape controls.** Flatten strands and size their arrowheads. Draw helices as twisted ribbons or as cylinders. Set thickness and width for helices, strands and loops.
 - **Zoom and detail.** Zoom adds characters instead of enlarging them. The grid fills the window, and the Detail setting picks the number of text rows.
+- **Export.** Save seamless looping GIFs (one exact turn, up to 1080 px wide), PNG snapshots or the frame as plain text, and share a link to the protein on screen.
 - **Embeddable.** `<ascii-fold accession="P01116">` works on any page.
 
 ## Run it
@@ -21,6 +22,9 @@ npx serve .            # or: python3 -m http.server
 Then open the printed URL. ES modules need a web server, so double-clicking `index.html` won't work. For a single file you can open from disk, use `dist/ascii-fold-standalone.html`.
 
 ## Deploy your own
+
+If you deploy somewhere other than `https://mitsenkov.github.io/ascii-fold/`, update the `og:url` and `og:image` tags in `index.html`. Social sites need absolute URLs for the preview image (`docs/og.png`).
+
 
 The site is static, so any static host works.
 
@@ -71,6 +75,7 @@ await view.loadAccession("P42212");
 view.setShape({ hStyle: "cylinder", flat: 1 });
 view.setRotation(1.2, -0.3);
 const png = view.snapshot();       // data URL of the current frame
+const gif = await view.recordGif({ frames: 60, width: 720 });   // Blob: one seamless turn
 const txt = view.text();           // current frame as plain text
 ```
 
@@ -110,6 +115,7 @@ src/
 - Models come from the **AlphaFold Protein Structure Database** (EMBL-EBI and Google DeepMind). AlphaFold data is © 2021 DeepMind Technologies Limited, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), and use of AlphaFold DB is subject to the [EMBL-EBI Terms of Use](https://www.ebi.ac.uk/about/terms-of-use/). The app and the component show a credit line; please keep it, or credit AlphaFold DB elsewhere on your page. If you use the predictions in your work, cite Jumper et al., *Nature* (2021) and the current database paper listed on the [AlphaFold DB homepage](https://alphafold.ebi.ac.uk).
 - The bundled default structure is **PDB 6GJ8** (KRAS G12D), from the [Protein Data Bank](https://www.rcsb.org/structure/6GJ8) (CC0).
 - The font is **JetBrains Mono**, loaded from Google Fonts under the SIL Open Font License.
+- GIF encoding uses [gifenc](https://github.com/mattdesl/gifenc) by Matt DesLauriers (MIT), vendored in `src/vendor/`.
 
 ## License
 
