@@ -89,7 +89,7 @@ seg("colour", v => { view.set({ colour: v }); renderLegend(); });
 seg("theme", v => { document.body.classList.toggle("night", v === "night"); view.set({ theme: v }); renderLegend(); });
 seg("glyphs", v => view.set({ glyphs: v }));
 seg("detail", v => view.set({ detail: v }));
-$("speed").oninput = e => view.set({ spin: e.target.value / 100 });
+$("speed").oninput = e => setSpin(+e.target.value);
 $("f0").oninput = e => view.set({ blendFrom: e.target.value / 100 });
 $("f1").oninput = e => view.set({ blendTo: e.target.value / 100 });
 
@@ -165,14 +165,34 @@ $("share").onclick = async () => {
 };
 
 // ---------- GIF export ----------
-const gif = { frames: 60, width: 720, url: null, ctrl: null };
-seg("gifTurn", v => gif.frames = +v);
-seg("gifSize", v => gif.width = +v);
+// The GIF turns at the on-screen speed: the engine spins spin × 1.6 rad/s, so one turn takes 2π / (1.6 × spin) s.
+const gif = { delay: 50, width: 720, url: null, ctrl: null };
+const KB_PER_FRAME_720 = 57;                       // measured: ~3.4 MB for 60 frames at 720 px
+const turnSeconds = () => (2 * Math.PI) / (1.6 * Math.max(0.1, view.options.spin));
+const gifFrames = () => Math.max(12, Math.round((turnSeconds() * 1000) / gif.delay));
+function gifEstimate() {
+  const n = gifFrames(), mb = (n * KB_PER_FRAME_720 * (gif.width / 720) ** 2) / 1024;
+  $("gifTurnTime").textContent = turnSeconds().toFixed(1) + " s";
+  $("gifEst").textContent = `${turnSeconds().toFixed(1)} s loop · ${n} frames · about ${mb < 1 ? mb.toFixed(1) : Math.round(mb)} MB` +
+    (mb > 15 ? " — large; try Light, a smaller width, or a faster spin" : "");
+}
+function setSpin(v) {                              // keeps the main slider, the dialog slider and the engine in step
+  $("speed").value = v; $("gifSpin").value = Math.max(10, v);
+  view.set({ spin: v / 100 }); gifEstimate();
+}
+$("gifSpin").oninput = e => setSpin(+e.target.value);
+seg("gifFps", v => { gif.delay = +v; gifEstimate(); });
+seg("gifSize", v => { gif.width = +v; gifEstimate(); });
 function gifReset() {
   if (gif.url) URL.revokeObjectURL(gif.url);
   gif.url = null; $("gifOut").innerHTML = ""; $("gifSave").hidden = true; $("gifBar").style.width = "0";
 }
-$("gifBtn").onclick = () => { gifReset(); $("gifGo").textContent = "Record"; $("gifDlg").hidden = false; $("gifGo").focus(); };
+$("gifBtn").onclick = () => {
+  gifReset(); $("gifGo").textContent = "Record";
+  if (view.options.spin < 0.1) setSpin(35);          // a GIF needs some rotation: fall back to the default speed
+  $("gifSpin").value = Math.round(view.options.spin * 100); gifEstimate();
+  $("gifDlg").hidden = false; $("gifGo").focus();
+};
 function gifClose() { if (gif.ctrl) gif.ctrl.abort(); $("gifDlg").hidden = true; }
 $("gifClose").onclick = gifClose;
 $("gifDlg").onclick = e => { if (e.target === $("gifDlg")) gifClose(); };
@@ -182,12 +202,13 @@ $("gifGo").onclick = async () => {
   gif.ctrl = typeof AbortController === "function" ? new AbortController() : null;
   $("gifGo").disabled = true; $("gifGo").textContent = "Recording…";
   try {
-    const blob = await view.recordGif({ frames: gif.frames, delay: 50, width: gif.width,
+    const frames = gifFrames();
+    const blob = await view.recordGif({ frames, delay: gif.delay, width: gif.width,
       signal: gif.ctrl && gif.ctrl.signal, onProgress: f => $("gifBar").style.width = (f * 100).toFixed(1) + "%" });
     gif.url = URL.createObjectURL(blob);
     const name = `ascii-fold-${(view.info && (view.info.acc || view.info.title) || "protein").replace(/[^\w-]+/g, "_")}.gif`;
     $("gifSave").href = gif.url; $("gifSave").download = name; $("gifSave").hidden = false;
-    $("gifOut").innerHTML = `<img alt="Recorded GIF of the rotating structure" src="${gif.url}"><p>${(blob.size / 1048576).toFixed(1)} MB · ${gif.frames} frames · right-click the image to save if Download is blocked</p>`;
+    $("gifOut").innerHTML = `<img alt="Recorded GIF of the rotating structure" src="${gif.url}"><p>${(blob.size / 1048576).toFixed(1)} MB · ${frames} frames · ${turnSeconds().toFixed(1)} s · right-click the image to save if Download is blocked</p>`;
   } catch (e) {
     if (e.name !== "AbortError") $("gifOut").innerHTML = `<p>Couldn't record: ${esc(e.message)}</p>`;
   } finally {

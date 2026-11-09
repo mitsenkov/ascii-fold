@@ -97,13 +97,15 @@
 <div id="gifDlg" class="dlg" hidden role="dialog" aria-modal="true" aria-labelledby="gifTitle">
   <div class="card">
     <h2 id="gifTitle">Export GIF</h2>
-    <p class="note">One seamless turn of the current view: same angle, zoom, colours and blend.</p>
-    <div class="ctl"><label>Turn</label>
-      <div class="seg" id="gifTurn"><button data-v="36">Fast · 1.8 s</button><button data-v="60" class="on">Medium · 3 s</button><button data-v="96">Slow · 4.8 s</button></div>
+    <p class="note">One seamless turn of the current view: same angle, zoom, colours and blend. The turn speed follows the Spin slider.</p>
+    <div class="ctl"><label for="gifSpin">Spin</label><input id="gifSpin" type="range" min="10" max="100" value="35"><span id="gifTurnTime" class="zval"></span></div>
+    <div class="ctl"><label>Frame rate</label>
+      <div class="seg" id="gifFps"><button data-v="50" class="on">Smooth · 20 fps</button><button data-v="70">Balanced · 14 fps</button><button data-v="100">Light · 10 fps</button></div>
     </div>
     <div class="ctl"><label>Width</label>
       <div class="seg" id="gifSize"><button data-v="480">480 px</button><button data-v="720" class="on">720 px</button><button data-v="1080">1080 px</button></div>
     </div>
+    <p class="note" id="gifEst"></p>
     <div class="bar" aria-hidden="true"><i id="gifBar"></i></div>
     <div id="gifOut"></div>
     <div class="row">
