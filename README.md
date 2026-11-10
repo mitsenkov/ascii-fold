@@ -5,7 +5,7 @@ Spinning protein structures drawn as ASCII text that dissolves into a cartoon ri
 <p align="center"><img src="docs/demo.gif" alt="KRAS G12D rotating: ASCII characters on the left dissolve into a red, blue and gold cartoon ribbon on the right" width="560"></p>
 
 - **Text → ribbon blend.** One projection drives both a character grid and a canvas cartoon, so they always line up. The handover is a fixed dither, like a halftone, or a soft cross-fade.
-- **Any AlphaFold DB model.** Load by accession, by URL hash (`#P04637`), or by dropping a `.pdb` / `.cif` file on the page. Colour by secondary structure, by pLDDT, or in a single ink colour.
+- **Any AlphaFold DB model.** Load by accession, by URL hash (`#P04637`), or by dropping a `.pdb` / `.cif` file on the page. All chains of the first model are rendered in their original relative positions. Colour by chain, by secondary structure, by pLDDT, or in a single ink colour.
 - **Shape controls.** Flatten strands and size their arrowheads. Draw helices as twisted ribbons or as cylinders. Set thickness and width for helices, strands and loops.
 - **Zoom and detail.** Zoom adds characters instead of enlarging them. The grid fills the window, and the Detail setting picks the number of text rows.
 - **Export.** Save seamless looping GIFs (one exact turn, up to 1080 px wide), PNG snapshots or the frame as plain text, and share a link to the protein on screen.
@@ -49,7 +49,7 @@ AlphaFold DB sends CORS headers, so visitors' browsers fetch models directly and
 | `accession` | UniProt accession, fetched from AlphaFold DB | bundled KRAS (PDB 6GJ8) |
 | `src` | URL of a `.pdb` / `.cif` file (must be CORS-readable) | |
 | `theme` | `paper` · `night` | `paper` |
-| `colour` | `ss` · `plddt` · `mono` | `ss` |
+| `colour` | `ss` · `plddt` · `mono` · `chain` | `ss` |
 | `layout` | `lr` (text→ribbon) · `rl` · `ascii` · `ribbon` | `lr` |
 | `seam` | `dither` · `soft` | `dither` |
 | `glyphs` | `classic` · `blocks` · `geo`, or your own light→dark ramp | `classic` |
@@ -79,11 +79,13 @@ const gif = await view.recordGif({ frames: 60, width: 720 });   // Blob: one sea
 const txt = view.text();           // current frame as plain text
 ```
 
+For complexes, select **Chain** to colour each chain independently. The engine accepts optional six-digit hex overrides through `chainColours` (a chain-ID-to-colour map); `view.chainPalette()` returns the active colours. Chain IDs and residue counts are available in `view.info.chains`. Each chain needs at least two Cα residues.
+
 Other methods: `set(options)`, `loadFile(file)`, `loadText(text)`, `loadDefault()`, `zoomBy(f)`, `resetView()`, `palette()`, `on("load" | "zoom", fn)` and `destroy()`. In the app, the view is available as `window.asciiFold`.
 
 ## How it works
 
-1. **Parse.** Read Cα and carbonyl O of the first chain from PDB or mmCIF. `src/parse.js` does this with no dependencies.
+1. **Parse.** Read Cα and carbonyl O of every chain in the first model from PDB or mmCIF. `src/parse.js` does this with no dependencies.
 2. **Secondary structure.** Use HELIX/SHEET records when present. Otherwise assign it from Cα distances alone (`src/ss.js`, P-SEA-like). This agreed with deposited assignments on about 80–86% of residues in our checks, which is fine for drawing but not for analysis.
 3. **Geometry.** Draw a Catmull-Rom spline through Cα. Orient the ribbon using the backbone C=O directions. Smooth the strand pleats on request, and fit helix axes for cylinders (`src/geometry.js`).
 4. **Text.** Splat spheres along the spline into a z-buffered character grid, shade them with a simple light and depth cue, and map brightness to a glyph ramp.

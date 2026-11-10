@@ -22,6 +22,7 @@ view.on("load", info => {
   if (info.ssFromGeometry) bits.push("SS from Cα geometry");
   $("sub").textContent = bits.filter(Boolean).join(" · ");
   $("plddtBtn").disabled = !info.hasPlddt;
+  renderLegend();
   if (!info.hasPlddt && view.options.colour === "plddt") setSeg("colour", "ss");
   $("credit").innerHTML = info.entryUrl
     ? `Structure: <a href="${info.entryUrl}" target="_blank" rel="noopener">AlphaFold DB</a> (CC BY 4.0)`
@@ -80,6 +81,7 @@ function seg(id, fn) {
 function renderLegend() {
   const p = view.palette(), c = view.options.colour;
   const items = c === "ss" ? [["Helix", p.H], ["Strand", p.E], ["Coil", p.C]]
+    : c === "chain" ? Object.entries(view.chainPalette()).map(([id, col]) => [`Chain ${esc(id || "(blank)")}`, col])
     : c === "plddt" ? [[">90", p.P[0]], ["70–90", p.P[1]], ["50–70", p.P[2]], ["<50", p.P[3]]] : [];
   $("legend").innerHTML = items.map(([t, col]) => `<span style="--sw:${col}">${t}</span>`).join("");
 }

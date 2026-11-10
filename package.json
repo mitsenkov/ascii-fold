@@ -18,7 +18,8 @@
     "build": "npm run build:esm && npm run build:iife && npm run build:standalone",
     "build:esm": "esbuild src/index.js --bundle --minify --format=esm --target=es2020 --outfile=dist/ascii-fold.js",
     "build:iife": "esbuild src/index.js --bundle --minify --format=iife --global-name=AsciiFold --target=es2020 --outfile=dist/ascii-fold.iife.js",
-    "build:standalone": "node scripts/build-standalone.mjs"
+    "build:standalone": "node scripts/build-standalone.mjs",
+    "test": "node --test"
   },
   "keywords": [
     "protein",

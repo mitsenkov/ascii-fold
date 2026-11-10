@@ -19,11 +19,12 @@ export const PALETTES = {
   night: { bg: "#121212", ink: "#F2ECDF", H: "#D33A2C", E: "#1F63B0", C: "#EFB52E", mono: "#E8E1D2",
            P: ["#0053D6", "#65CBF3", "#FFDB13", "#FF7D45"] },
 };
+export const CHAIN_COLOURS = ["#4477AA", "#EE7733", "#228833", "#CC3377", "#AA3377", "#66CCEE", "#BBBBBB"];
 export const GLYPHS = { classic: " .,:;-=+*x#%@", blocks: " ·░░▒▒▓▓██", geo: " ·∙•◦○◎●◉■" };
 export const DETAIL = { coarse: 46, medium: 64, fine: 92, ultra: 128 };   // text rows; columns follow width
 export const DEFAULTS = {
   theme: "paper", colour: "ss", layout: "lr", seam: "dither", glyphs: "classic", detail: "medium",
-  spin: 0.35, blendFrom: 0.25, blendTo: 0.8, interactive: true, background: true, palette: null,
+  spin: 0.35, blendFrom: 0.25, blendTo: 0.8, interactive: true, background: true, palette: null, chainColours: null,
   font: '"JetBrains Mono", "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace',
 };
 
@@ -68,6 +69,7 @@ export function createAsciiFold(container, options = {}) {
   let COLS = 112, ROWS = 64, cw = 8, lh = 13, aspect = 0.6;
   let rotY = 0.6, rotX = -0.35, zoom = 1, panX = 0, panY = 0;
   let mimg, HASH, zbuf, lbuf, cbuf, ibuf, lastGrid = [];
+  let chainColours = new Map();
   let PAL = null, ramp = GLYPHS.classic;
 
   function alloc() {
@@ -115,8 +117,9 @@ export function createAsciiFold(container, options = {}) {
     return rgb(c.map((v, i) => v * (1 - fog) + PAL.paper[i] * fog));
   }
   const colourMode = () => (o.colour === "plddt" && !(G && G.hasPlddt)) ? "ss" : o.colour;
-  const textColour = q => { const m = colourMode(); return m === "ss" ? PAL.css[q.ss] : m === "plddt" ? PAL.css.P[q.pk] : null; };
-  const baseOf = (q, kind) => { const m = colourMode(); return m === "ss" ? PAL[kind] : m === "plddt" ? PAL.P[q.pk] : PAL.mono; };
+  const chainColour = q => (o.chainColours && Object.prototype.hasOwnProperty.call(o.chainColours, q.chain) && o.chainColours[q.chain]) || chainColours.get(q.chain) || PAL.css.ink;
+  const textColour = q => { if (o.colour === "chain") return chainColour(q); const m = colourMode(); return m === "ss" ? PAL.css[q.ss] : m === "plddt" ? PAL.css.P[q.pk] : null; };
+  const baseOf = (q, kind) => { if (o.colour === "chain") return hex(chainColour(q)); const m = colourMode(); return m === "ss" ? PAL[kind] : m === "plddt" ? PAL.P[q.pk] : PAL.mono; };
 
   // ---------- view helpers ----------
   const baseScale = () => G ? Math.min((COLS * 0.5 - 2) / G.R, (ROWS * 0.5 - 1) / (G.R * aspect)) : 1;
@@ -369,9 +372,11 @@ export function createAsciiFold(container, options = {}) {
   let loadToken = 0, aborter = null;
   function setStructure(parsed, meta = {}) {
     G = buildGeometry(parsed, shape);
+    const chains = parsed.chains || [parsed];
+    chainColours = new Map(chains.map((c, i) => [c.chain, CHAIN_COLOURS[i % CHAIN_COLOURS.length]]));
     lastParsed = parsed;
     info = { title: meta.title || parsed.title || "Structure", sub: meta.sub || "", residues: G.N, meanPlddt: G.hasPlddt ? G.meanP : null,
-             hasPlddt: G.hasPlddt, ssFromGeometry: G.ssAuto, chain: parsed.chain, entryUrl: meta.entryUrl || null, acc: meta.acc || null };
+             hasPlddt: G.hasPlddt, ssFromGeometry: G.ssAuto, chain: parsed.chain, chains: chains.map(c => ({ chain: c.chain, residues: c.rows.length })), entryUrl: meta.entryUrl || null, acc: meta.acc || null };
     root.setAttribute("aria-label", `${info.title}: rotating protein structure drawn as text and ribbon`);
     resetView(true);
     emit("load", info);
@@ -410,7 +415,7 @@ export function createAsciiFold(container, options = {}) {
       if (token !== loadToken) return null;
       return setStructure(parsed, {
         title: afId ? afId.acc : file.name.replace(/\.(pdb|cif|mmcif|ent)(\.gz)?$/i, ""),
-        sub: [afId ? `AF-${afId.acc}-F${afId.frag}` : (parsed.title || "local file"), `chain ${parsed.chain}`].join(" · "),
+        sub: [afId ? `AF-${afId.acc}-F${afId.frag}` : (parsed.title || "local file"), `chain${parsed.chains?.length > 1 ? "s" : ""} ${(parsed.chains || [parsed]).map(c => c.chain || "(blank)").join(", ")}`].join(" · "),
       });
     },
     /** Fetch a model from AlphaFold DB by UniProt accession. Rejects with AFDBError. */
@@ -473,6 +478,7 @@ export function createAsciiFold(container, options = {}) {
       }
     },
     palette() { return { ...PAL.css }; },
+    chainPalette() { return Object.fromEntries([...chainColours].map(([chain]) => [chain, chainColour({ chain })])); },
     on(ev, fn) { (listeners[ev] = listeners[ev] || []).push(fn); return () => { listeners[ev] = listeners[ev].filter(f => f !== fn); }; },
     destroy() {
       destroyed = true;
