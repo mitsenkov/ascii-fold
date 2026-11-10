@@ -33,8 +33,33 @@ function helixAxis(CA, s, e) {
 }
 
 export function buildGeometry(parsed, shape = SHAPE_DEFAULT) {
+  if (parsed.chains && parsed.chains.length > 1) {
+    const chains = parsed.chains;
+    const rows = chains.flatMap(c => c.rows);
+    const center = rows.reduce((a, r) => add(a, r.CA), [0, 0, 0]).map(v => v / rows.length);
+    let offset = 0;
+    const parts = chains.map(chain => {
+      const localCenter = chain.rows.reduce((a, r) => add(a, r.CA), [0, 0, 0]).map(v => v / chain.rows.length);
+      const part = buildGeometry({ ...chain, isAF: parsed.isAF }, shape);
+      for (const q of part.pts) {
+        q.p = add(q.p, sub(localCenter, center));
+        q.chain = chain.chain;
+        q.res += offset;
+      }
+      offset += chain.rows.length;
+      // The painter must never join the end of one chain to the next.
+      part.pts[part.pts.length - 1].gap = true;
+      return part;
+    });
+    const pts = parts.flatMap(p => p.pts);
+    return { pts, R: pts.reduce((r, q) => Math.max(r, Math.hypot(...q.p) + q.r), 0) + 1,
+      N: rows.length, hasPlddt: !!parsed.isAF,
+      meanP: parts.reduce((n, p) => n + p.meanP * p.N, 0) / rows.length,
+      ssCounts: { H: parts.reduce((n, p) => n + p.ssCounts.H, 0), E: parts.reduce((n, p) => n + p.ssCounts.E, 0) },
+      ssAuto: parts.some(p => p.ssAuto) };
+  }
   const rows = parsed.rows;
-  if (rows.length < 5) throw new Error("Too few residues to draw");
+  if (rows.length < 2) throw new Error("Each chain needs at least two residues to draw");
   const N = rows.length, SH = { ...SHAPE_DEFAULT, ...shape }, cyl = SH.hStyle === "cylinder";
   let CA0 = rows.map(r => r.CA);
   const cen = CA0.reduce((a, p) => add(a, p), [0, 0, 0]).map(v => v / N);
@@ -106,6 +131,7 @@ export function buildGeometry(parsed, shape = SHAPE_DEFAULT) {
 
   for (let k = 0; k < pts.length; k++) {
     const q = pts[k];
+    q.chain = parsed.chain;
     const a = pts[Math.max(0, k - 1)].p, b = pts[Math.min(pts.length - 1, k + 1)].p;
     const T = norm(sub(b, a));
     const S = norm(sub(q.side, mul(T, dot(q.side, T))));

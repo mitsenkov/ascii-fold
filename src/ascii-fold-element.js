@@ -5,7 +5,7 @@ import { createAsciiFold } from "./engine.js";
 // Attributes (all optional):
 //   accession     UniProt accession to fetch from AlphaFold DB
 //   src           URL of a .pdb / .cif file to load instead (must be CORS-readable)
-//   theme         paper | night                      colour      ss | plddt | mono
+//   theme         paper | night                      colour      ss | plddt | mono | chain
 //   layout        lr | rl | ascii | ribbon           seam        dither | soft
 //   glyphs        classic | blocks | geo | <custom ramp, light → dark>
 //   detail        coarse | medium | fine | ultra | <rows>
